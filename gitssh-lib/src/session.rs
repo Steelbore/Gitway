@@ -250,9 +250,29 @@ impl GitsshSession {
             }
             IdentityResolution::Encrypted { path } => {
                 log::debug!(
-                    "session: key at {} needs a passphrase",
+                    "session: key at {} is passphrase-protected; trying SSH agent first",
                     path.display()
                 );
+                // Try the agent before asking for a passphrase.  The key may
+                // already be loaded via `ssh-add`, and a passphrase prompt is
+                // impossible when gitssh is spawned by Git without a terminal.
+                #[cfg(unix)]
+                {
+                    use crate::auth::connect_agent;
+                    if let Some(conn) = connect_agent().await? {
+                        match self.authenticate_with_agent(&config.username, conn).await {
+                            Ok(()) => return Ok(()),
+                            Err(e) if e.is_authentication_failed() => {
+                                log::debug!(
+                                    "session: agent could not authenticate; \
+                                     will request passphrase for {}",
+                                    path.display()
+                                );
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                }
                 return Err(GitsshError::new(GitsshErrorKind::Keys(
                     russh::keys::Error::KeyIsEncrypted,
                 )));
@@ -262,7 +282,7 @@ impl GitsshSession {
             }
         }
 
-        // Priority 3: SSH agent (FR-9).
+        // Priority 3: SSH agent — reached only when no file-based key exists (FR-9).
         #[cfg(unix)]
         {
             use crate::auth::connect_agent;

@@ -451,10 +451,52 @@ git config --global core.sshCommand "gitssh --identity ~/.ssh/id_ed25519"
 
 ### Passphrase prompt does not appear in IDE GUI
 
-Gitssh prompts on the terminal, not in a GUI dialog. Make sure Git
-operations that might need a passphrase are run from the integrated
-terminal, or add your key to the SSH agent beforehand:
+When a GUI app launches Git (GitHub Desktop, JetBrains, Zed, etc.), gitssh
+runs without a terminal. There are three solutions, in recommended order:
+
+**Option 1 — SSH agent (recommended):** Load your key once per session.
+Gitssh always tries the agent first before asking for a passphrase.
 
 ```sh
 ssh-add ~/.ssh/id_ed25519
 ```
+
+**Option 2 — SSH_ASKPASS:** Point gitssh at a GUI passphrase dialog program.
+Set these variables in your shell profile so they are inherited by GUI apps:
+
+*Nushell (`~/.config/nushell/env.nu`):*
+```nu
+$env.SSH_ASKPASS = "/usr/bin/ksshaskpass"       # KDE
+# $env.SSH_ASKPASS = "/usr/bin/ssh-askpass"     # GNOME / generic X11
+$env.SSH_ASKPASS_REQUIRE = "prefer"
+```
+
+*Ion (`~/.config/ion/initrc`):*
+```ion
+export SSH_ASKPASS=/usr/bin/ksshaskpass
+export SSH_ASKPASS_REQUIRE=prefer
+```
+
+*Bash/Brush (`~/.profile`):*
+```bash
+export SSH_ASKPASS=/usr/bin/ksshaskpass
+export SSH_ASKPASS_REQUIRE=prefer
+```
+
+Common askpass programs by desktop environment:
+
+| Desktop | Package | Binary |
+|---|---|---|
+| KDE (Plasma) | `ksshaskpass` | `/usr/bin/ksshaskpass` |
+| GNOME | `ssh-askpass-gnome` | `/usr/bin/ssh-askpass-gnome` |
+| Generic X11 | `openssh-askpass` | `/usr/bin/ssh-askpass` |
+| NixOS (KDE) | `pkgs.ksshaskpass` | — |
+| NixOS (X11) | `pkgs.x11_ssh_askpass` | — |
+
+`SSH_ASKPASS_REQUIRE=prefer` tells gitssh to always use the GUI dialog when
+`SSH_ASKPASS` is set (even if a terminal is present). Use `force` to override
+terminal prompting entirely.
+
+**Option 3 — run from the integrated terminal:** Open the IDE's built-in
+terminal and perform the Git operation from there. The terminal is a real
+TTY, so gitssh can prompt normally.

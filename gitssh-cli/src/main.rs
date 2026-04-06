@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Rust guideline compliant 2026-04-05
+// Rust guideline compliant 2026-03-30
 // S3: enforce zero unsafe in all project-owned code at compile time.
 #![forbid(unsafe_code)]
 //! Gitssh CLI entry point.
@@ -186,8 +186,9 @@ fn run_install() -> Result<u32, GitsshError> {
 
 /// Resolves an identity key and authenticates the session.
 ///
-/// If the key is passphrase-protected, prompts via `rpassword`.  The
-/// passphrase string is wrapped in [`Zeroizing`] so its bytes are
+/// If the key is passphrase-protected, the passphrase is collected via
+/// [`try_askpass`] (when `SSH_ASKPASS` is set) or [`rpassword`] (terminal).
+/// The passphrase string is wrapped in [`Zeroizing`] so its bytes are
 /// overwritten before the allocation is released (NFR-3).
 async fn authenticate_with_prompt(
     session: &mut GitsshSession,
@@ -215,14 +216,107 @@ async fn authenticate_with_prompt(
         .await
 }
 
-/// Prompts the user for a key passphrase on the terminal (FR-10).
+/// Collects a key passphrase, preferring `SSH_ASKPASS` over a terminal prompt (FR-10).
 ///
-/// Returns the passphrase wrapped in [`Zeroizing`] so the bytes are wiped
-/// when the caller drops the value (NFR-3).
+/// Resolution order:
+/// 1. [`try_askpass`] — used when `SSH_ASKPASS` is set and the conditions
+///    described there are met (GUI environment or `SSH_ASKPASS_REQUIRE` set).
+/// 2. [`rpassword`] — falls back to a terminal prompt.
+///
+/// The returned string is wrapped in [`Zeroizing`] so the bytes are overwritten
+/// before the allocation is released (NFR-3).
 fn prompt_passphrase(path: &std::path::Path) -> Result<Zeroizing<String>, GitsshError> {
-    rpassword::prompt_password(format!("Enter passphrase for {}: ", path.display()))
+    let prompt = format!("Enter passphrase for {}: ", path.display());
+
+    if let Some(passphrase) = try_askpass(&prompt)? {
+        return Ok(passphrase);
+    }
+
+    rpassword::prompt_password(&prompt)
         .map(Zeroizing::new)
-        .map_err(GitsshError::from)
+        .map_err(|e| {
+            // ENXIO (os error 6) means no terminal is available — typical when
+            // spawned by a GUI app.  Give a helpful hint instead of the raw
+            // OS error string.
+            if e.raw_os_error() == Some(6) || e.kind() == std::io::ErrorKind::Other {
+                GitsshError::invalid_config(
+                    "no terminal available for passphrase prompt — \
+                     run `ssh-add` to load the key into the SSH agent, \
+                     or set SSH_ASKPASS to a GUI passphrase helper \
+                     (e.g. ksshaskpass, ssh-askpass-gnome)",
+                )
+            } else {
+                GitsshError::from(e)
+            }
+        })
+}
+
+/// Attempts to collect a passphrase via the `SSH_ASKPASS` program,
+/// following OpenSSH conventions (FR-10).
+///
+/// Returns `Ok(None)` when the askpass path should not be taken.
+/// Returns `Ok(Some(_))` with the passphrase when the program succeeded.
+/// Returns `Err` when the program was found but could not be launched or
+/// exited with a non-zero status.
+///
+/// # When askpass is used
+///
+/// Mirrors OpenSSH behavior:
+/// - `SSH_ASKPASS_REQUIRE=force` — always use the askpass program.
+/// - `SSH_ASKPASS_REQUIRE=prefer` — use it regardless of TTY state.
+/// - Otherwise — use it when a display server (`DISPLAY` or
+///   `WAYLAND_DISPLAY`) is present **and** stderr is not a terminal
+///   (i.e., gitssh was spawned by a GUI app without a console).
+fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitsshError> {
+    use std::io::IsTerminal as _;
+
+    let askpass = match std::env::var_os("SSH_ASKPASS") {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    let require = std::env::var("SSH_ASKPASS_REQUIRE")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    let use_askpass = match require.as_str() {
+        "force" | "prefer" => true,
+        // Default OpenSSH behavior: use askpass when a display server exists
+        // but no terminal is attached (spawned by a GUI application).
+        _ => {
+            let has_display = std::env::var_os("DISPLAY").is_some()
+                || std::env::var_os("WAYLAND_DISPLAY").is_some();
+            let no_tty = !std::io::stderr().is_terminal();
+            has_display && no_tty
+        }
+    };
+
+    if !use_askpass {
+        return Ok(None);
+    }
+
+    log::debug!("auth: using SSH_ASKPASS program {:?}", askpass);
+
+    let output = std::process::Command::new(&askpass)
+        .arg(prompt)
+        .output()
+        .map_err(|e| {
+            GitsshError::invalid_config(format!(
+                "SSH_ASKPASS program {askpass:?} could not be launched: {e}"
+            ))
+        })?;
+
+    if !output.status.success() {
+        return Err(GitsshError::invalid_config(format!(
+            "SSH_ASKPASS program {askpass:?} exited with status {}",
+            output.status
+        )));
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    // Askpass programs conventionally append a newline — strip it before
+    // wrapping in Zeroizing so no partial secret copy remains.
+    Ok(Some(Zeroizing::new(raw.trim_end_matches('\n').to_owned())))
 }
 
 // ── Hostname parsing ──────────────────────────────────────────────────────────

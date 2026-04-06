@@ -51,12 +51,17 @@ order, and behaves identically on Linux, macOS, and Windows.
 
 ### From source
 
-**Nushell/Ion Shell:**
+**Nushell:**
 ```nu
 cargo install --path gitssh-cli
 ```
 
-**Brush/Bash Shell:**
+**Ion:**
+```ion
+cargo install --path gitssh-cli
+```
+
+**Bash/Brush:**
 ```bash
 cargo install --path gitssh-cli
 ```
