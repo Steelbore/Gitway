@@ -381,7 +381,25 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitsshError> {
     let raw = String::from_utf8_lossy(&output.stdout);
     // Askpass programs conventionally append a newline — strip it before
     // wrapping in Zeroizing so no partial secret copy remains.
-    Ok(Some(Zeroizing::new(raw.trim_end_matches('\n').to_owned())))
+    let passphrase = raw.trim_end_matches('\n').to_owned();
+
+    // An empty passphrase means the user cancelled the dialog (or the askpass
+    // program — e.g. VS Code's ssh-askpass.sh — does not handle SSH key
+    // passphrases and returned nothing).  Propagating an empty string would
+    // cause an opaque "SshKey: cryptographic error" from the key-decryption
+    // layer; return a clear, actionable message instead.
+    if passphrase.is_empty() {
+        return Err(GitsshError::invalid_config(
+            "SSH_ASKPASS program returned an empty passphrase — \
+             the dialog was cancelled or the program does not support \
+             SSH key passphrase prompts; \
+             run `ssh-add ~/.ssh/id_ed25519` to load the key into the \
+             SSH agent, or set SSH_ASKPASS to a dedicated passphrase \
+             helper (e.g. ksshaskpass, ssh-askpass-gnome)",
+        ));
+    }
+
+    Ok(Some(Zeroizing::new(passphrase)))
 }
 
 // ── Hostname parsing ──────────────────────────────────────────────────────────
