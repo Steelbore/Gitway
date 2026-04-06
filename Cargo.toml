@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[workspace]
+members  = ["gitssh-lib", "gitssh-cli"]
+exclude  = ["fuzz"]
+resolver = "2"
+
+[workspace.package]
+version    = "0.1.0"
+edition    = "2021"
+license    = "GPL-3.0-or-later"
+authors    = ["Mohamed Hammad <unbreakablemj@gmail.com>"]
+repository = "https://github.com/steelbore/gitssh"
+rust-version = "1.85"
+
+# ── Shared dependencies ───────────────────────────────────────────────────────
+
+[workspace.dependencies]
+# Use aws-lc-rs crypto backend: Non-FIPS builds require no CMake/bindgen/Go,
+# and it provides post-quantum cryptography (PQC) support for future-proofing.
+# See: https://aws.github.io/aws-lc-rs/ and https://github.com/aws/aws-lc/blob/main/crypto/fipsmodule/PQREADME.md
+russh = { version = "0.59", default-features = false, features = ["flate2", "aws-lc-rs", "rsa"] }
+
+tokio     = { version = "1",    features = ["io-util", "io-std", "rt-multi-thread", "net", "sync", "macros"] }
+thiserror = "2"
+log       = "0.4"
+dirs      = "6"
+zeroize   = "1.7"
+
+clap       = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+rpassword  = "7"
+mimalloc   = "0.1"
+
+# Dev / test helpers
+tempfile   = "3"
+
+# ── Workspace-wide lints ──────────────────────────────────────────────────────
+
+[workspace.lints.rust]
+ambiguous_negative_literals     = "warn"
+missing_debug_implementations   = "warn"
+redundant_imports               = "warn"
+redundant_lifetimes             = "warn"
+trivial_numeric_casts           = "warn"
+unsafe_op_in_unsafe_fn          = "warn"
+unused_lifetimes                = "warn"
+
+[workspace.lints.clippy]
+cargo      = { level = "warn", priority = -1 }
+complexity  = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic    = { level = "warn", priority = -1 }
+perf        = { level = "warn", priority = -1 }
+style       = { level = "warn", priority = -1 }
+suspicious  = { level = "warn", priority = -1 }
+
+allow_attributes_without_reason      = "warn"
+assertions_on_result_states          = "warn"
+clone_on_ref_ptr                     = "warn"
+deref_by_slicing                     = "warn"
+empty_drop                           = "warn"
+empty_structs_with_brackets          = "warn"
+fn_to_numeric_cast_any               = "warn"
+map_err_ignore                       = "warn"
+redundant_type_annotations           = "warn"
+semicolon_outside_block              = "warn"
+string_to_string                     = "warn"
+undocumented_unsafe_blocks           = "warn"
+unnecessary_safety_comment           = "warn"
+unnecessary_safety_doc               = "warn"
+unused_result_ok                     = "warn"
+
+# Structured logging uses literal strings with format args intentionally.
+literal_string_with_formatting_args  = "allow"
+# `module_name_repetitions` fires often in well-named pub API types.
+module_name_repetitions              = "allow"
+
+# russh pulls in crypto crates at different versions; mismatch is unavoidable.
+multiple_crate_versions   = "allow"
+
+# GitsshError carries a std::backtrace::Backtrace (heap-allocated).  Boxing
+# it in every return type would harm ergonomics for no meaningful benefit on
+# the non-hot authentication path.
+result_large_err          = "allow"
+
+cargo_common_metadata     = "allow"

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name          = "gitssh-lib"
+description   = "Core SSH transport library for Git operations against GitHub (and GHE)."
+keywords      = ["ssh", "git", "github", "transport"]
+categories    = ["network-programming", "authentication"]
+readme        = "README.md"
+documentation = "https://docs.rs/gitssh-lib"
+
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+russh.workspace    = true
+tokio.workspace    = true
+thiserror.workspace = true
+log.workspace      = true
+dirs.workspace     = true
+zeroize.workspace  = true
+
+[dev-dependencies]
+tokio     = { workspace = true }
+tempfile  = { workspace = true }
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name    = "throughput"
+harness = false

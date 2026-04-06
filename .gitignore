@@ -1,0 +1,43 @@
+# Cargo build output
+/target/
+fuzz/target/
+
+# Cargo lock is committed for binaries, not libraries.
+# gitssh-lib is a library so its lock file should not be committed if published
+# separately, but since this workspace also contains a binary (gitssh-cli) we
+# keep Cargo.lock checked in.
+
+# Editor and IDE artifacts
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Nix
+result
+result-*
+.direnv/
+
+# Shell session files
+*.txt.bak
+
+# Exported conversation files (Claude Code /export output)
+2026-*.txt
+
+# Criterion benchmark output
+criterion/
+
+# cargo-fuzz corpus and artifacts (keep the fuzz targets, not the generated data)
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/
+
+# cargo-geiger output
+geiger/
+
+# Temporary files
+*.tmp
+*.bak

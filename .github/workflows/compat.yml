@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Compatibility workflow — Git transport test suite validation (NFR-8, S4).
+#
+# Runs Git's t5500-fetch-pack.sh and t5516-fetch-pack-v2.sh with gitssh as
+# the SSH transport.  These tests verify that the pack-protocol relay is
+# byte-for-byte compatible with what OpenSSH produces.
+#
+# This workflow is NOT triggered automatically because it:
+#   1. Requires network access to clone the Git source tree.
+#   2. Requires a GitHub SSH identity (added as a repository secret).
+#
+# To run manually:
+#   gh workflow run compat.yml
+
+name: Compatibility
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: ""
+
+jobs:
+  git-transport-tests:
+    name: Git transport tests (t5500, t5516)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y perl libtest-harness-perl
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-compat-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-compat-
+
+      - name: Build release binary
+        run: cargo build --release -p gitssh
+
+      - name: Install SSH key from secret
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.GITSSH_TEST_KEY }}
+          known_hosts: unnecessary
+
+      - name: Run Git transport tests
+        env:
+          GITSSH_BIN: ${{ github.workspace }}/target/release/gitssh
+        run: ./scripts/run-git-transport-tests.sh

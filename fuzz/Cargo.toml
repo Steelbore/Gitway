@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# cargo-fuzz workspace — NOT published to crates.io.
+#
+# Usage:
+#   cargo fuzz run fuzz_key_parse
+#   cargo fuzz run fuzz_known_hosts
+#
+# Requires: cargo install cargo-fuzz
+#           RUSTFLAGS="" (unset any platform-injected flags)
+[package]
+name    = "gitssh-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+gitssh-lib    = { path = "../gitssh-lib" }
+tempfile      = "3"
+
+# Fuzz target binaries.  Each maps to a file in fuzz_targets/.
+[[bin]]
+name = "fuzz_key_parse"
+path = "fuzz_targets/fuzz_key_parse.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "fuzz_known_hosts"
+path = "fuzz_targets/fuzz_known_hosts.rs"
+test = false
+doc  = false
+
+[profile.release]
+# Preserve debug info so corpus crashes have readable backtraces.
+debug = true

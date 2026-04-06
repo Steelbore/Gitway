@@ -1,0 +1,178 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# CI matrix — build, lint, and test Gitssh on stable + MSRV Rust.
+#
+# Jobs:
+#   check   — cargo check (fast fail on type errors), Linux only
+#   lint    — cargo clippy -D warnings + rustfmt --check, Linux only
+#   test    — cargo test (unit + doc tests) on Linux, macOS, and Windows
+#   msrv    — cargo check on rust-version from Cargo.toml (currently 1.85)
+#
+# Integration tests (test_connection, test_clone) require GITSSH_INTEGRATION_TESTS=1
+# and a live SSH identity.  They are not run in CI to avoid flaky failures.
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Ensure no platform-injected RUSTFLAGS override the build.
+  RUSTFLAGS: ""
+
+jobs:
+  # ── Fast type-check (Linux) ─────────────────────────────────────────────────
+  check:
+    name: cargo check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-check-
+
+      - name: cargo check
+        run: cargo check --all-targets
+
+  # ── Lint (Linux) ────────────────────────────────────────────────────────────
+  lint:
+    name: clippy + fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable with clippy + rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-lint-
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo fmt check
+        run: cargo fmt --all --check
+
+  # ── Unit + doc tests (Linux, macOS, Windows) ────────────────────────────────
+  test:
+    name: cargo test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      # ring requires nasm on Windows.
+      - name: Install nasm (Windows only)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-
+
+      - name: cargo test
+        # Integration tests are gated behind GITSSH_INTEGRATION_TESTS and are
+        # not set here, so only unit and doc tests run in CI.
+        run: cargo test
+
+  # ── Release binary size guard (Linux) ─────────────────────────────────────
+  #
+  # S2: the stripped release binary must stay under 10 MB.
+  # Fails fast if a dependency change bloats the binary unexpectedly.
+  size-check:
+    name: binary size ≤ 10 MB (S2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-size-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-size-
+
+      - name: Build release binary
+        run: cargo build --release -p gitssh
+
+      - name: Check binary size
+        run: |
+          SIZE=$(stat -c%s target/release/gitssh)
+          SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
+          echo "Release binary: ${SIZE_MB} MB  (S2 limit: 10 MB)"
+          if [ "$SIZE" -gt 10485760 ]; then
+            echo "Binary exceeds 10 MB limit (S2)"
+            exit 1
+          fi
+
+  # ── MSRV check (Linux) ──────────────────────────────────────────────────────
+  msrv:
+    name: cargo check (MSRV 1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust 1.85 (MSRV)
+        uses: dtolnay/rust-toolchain@1.85
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-msrv-
+
+      - name: cargo check (MSRV)
+        run: cargo check --all-targets
