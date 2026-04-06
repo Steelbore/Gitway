@@ -22,6 +22,8 @@ use clap::Parser as _;
 use zeroize::Zeroizing;
 
 use gitssh_lib::auth::{IdentityResolution, find_identity};
+#[cfg(unix)]
+use gitssh_lib::auth::connect_agent;
 use gitssh_lib::{GitsshConfig, GitsshError, GitsshSession};
 
 use cli::Cli;
@@ -118,12 +120,22 @@ async fn run(cli: Cli) -> Result<u32, GitsshError> {
 
 /// Verifies connectivity and displays the GitHub server banner (FR-21).
 async fn run_test(config: &GitsshConfig) -> Result<u32, GitsshError> {
+    // Collect the passphrase before connecting so the session inactivity
+    // timeout does not fire while the user is typing (see `maybe_collect_passphrase`).
+    let pre_passphrase = maybe_collect_passphrase(config).await?;
+
     eprintln!("gitssh: connecting to {}:{}…", config.host, config.port);
 
     let mut session = GitsshSession::connect(config).await?;
     eprintln!("gitssh: host-key verified ✓");
 
-    match authenticate_with_prompt(&mut session, config).await {
+    let auth_result = if let Some((passphrase, path)) = pre_passphrase {
+        session.authenticate_with_passphrase(config, &path, &passphrase).await
+    } else {
+        authenticate_with_prompt(&mut session, config).await
+    };
+
+    match auth_result {
         Ok(()) => {
             eprintln!("gitssh: authentication successful ✓");
             if let Some(banner) = session.auth_banner() {
@@ -154,9 +166,17 @@ async fn run_exec(config: &GitsshConfig, command_parts: &[String]) -> Result<u32
     // Join all tokens the same way Git does: space-separated.
     let command = command_parts.join(" ");
 
+    // Collect the passphrase before connecting so the session inactivity
+    // timeout does not fire while the user is typing (see `maybe_collect_passphrase`).
+    let pre_passphrase = maybe_collect_passphrase(config).await?;
+
     let mut session = GitsshSession::connect(config).await?;
 
-    authenticate_with_prompt(&mut session, config).await?;
+    if let Some((passphrase, path)) = pre_passphrase {
+        session.authenticate_with_passphrase(config, &path, &passphrase).await?;
+    } else {
+        authenticate_with_prompt(&mut session, config).await?;
+    }
 
     let exit_code = session.exec(&command).await?;
     session.close().await?;
@@ -180,6 +200,51 @@ fn run_install() -> Result<u32, GitsshError> {
             "git config --global core.sshCommand failed",
         ))
     }
+}
+
+// ── Pre-connection passphrase collection ─────────────────────────────────────
+
+/// Probes the configured identity key and, when a passphrase is required but
+/// no SSH agent is available to satisfy authentication, collects the passphrase
+/// **before** the SSH connection is opened.
+///
+/// # Why this matters
+///
+/// russh enforces a 60-second inactivity timeout (FR-5).  If we prompt for a
+/// passphrase *after* connecting, the timer is already running — a user who
+/// takes more than a minute to type (or who misses the prompt because it is
+/// behind a GUI window) will see a confusing `InactivityTimeout` error.
+///
+/// By prompting first, the connection is only opened once the passphrase is
+/// ready, so the 60-second window is never wasted on user input.
+///
+/// # Returns
+///
+/// - `Ok(Some((passphrase, path)))` — passphrase collected; call
+///   [`GitsshSession::authenticate_with_passphrase`] directly after connecting.
+/// - `Ok(None)` — agent will handle auth, or no file-based key is involved;
+///   use the normal [`authenticate_with_prompt`] path.
+async fn maybe_collect_passphrase(
+    config: &GitsshConfig,
+) -> Result<Option<(Zeroizing<String>, std::path::PathBuf)>, GitsshError> {
+    // Only relevant when an encrypted key file is found.
+    let IdentityResolution::Encrypted { path } = find_identity(config)? else {
+        return Ok(None);
+    };
+
+    // If the SSH agent is reachable and holds at least one identity it can
+    // authenticate without a passphrase — let the normal post-connect flow
+    // handle it (agent auth completes in < 1 s, well within the timeout).
+    #[cfg(unix)]
+    if matches!(connect_agent().await, Ok(Some(_))) {
+        return Ok(None);
+    }
+
+    // No agent (or non-Unix platform) — collect the passphrase now so the
+    // SSH session is not sitting idle while the user types.
+    log::debug!("auth: collecting passphrase before connecting to avoid inactivity timeout");
+    let passphrase = prompt_passphrase(&path)?;
+    Ok(Some((passphrase, path)))
 }
 
 // ── Shared auth helper ────────────────────────────────────────────────────────
