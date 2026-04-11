@@ -340,6 +340,17 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitsshError> {
         None => return Ok(None),
     };
 
+    // Security: require an absolute path so that a relative value injected
+    // into the environment (e.g. by a malicious Git hook or CI pipeline)
+    // cannot resolve to an unintended binary via PATH lookup.
+    // This is a cheap check (no I/O) so it runs unconditionally before
+    // we decide whether askpass is needed at all.
+    if !std::path::Path::new(&askpass).is_absolute() {
+        return Err(GitsshError::invalid_config(format!(
+            "SSH_ASKPASS {askpass:?} must be an absolute path"
+        )));
+    }
+
     let require = std::env::var("SSH_ASKPASS_REQUIRE")
         .unwrap_or_default()
         .to_ascii_lowercase();
@@ -360,6 +371,25 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitsshError> {
         return Ok(None);
     }
 
+    // On Unix, reject world-writable executables immediately before
+    // spawning: any local user could overwrite a world-writable file to
+    // intercept passphrases.  The stat is placed here, as close as
+    // possible to Command::new, to minimize the TOCTOU window between
+    // the permission check and the actual execve(2) call.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if let Ok(meta) = std::fs::metadata(std::path::Path::new(&askpass)) {
+            // 0o002 = write bit for "other"
+            if meta.permissions().mode() & 0o002 != 0 {
+                return Err(GitsshError::invalid_config(format!(
+                    "SSH_ASKPASS {askpass:?} is world-writable and \
+                     cannot be trusted"
+                )));
+            }
+        }
+    }
+
     log::debug!("auth: using SSH_ASKPASS program {:?}", askpass);
 
     let output = std::process::Command::new(&askpass)
@@ -371,17 +401,39 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitsshError> {
             ))
         })?;
 
-    if !output.status.success() {
+    let status = output.status;
+    // Destructure immediately so we hold a mutable Vec<u8> that we can
+    // explicitly zeroize before it is dropped — preventing the raw
+    // passphrase bytes from lingering on the heap.
+    let mut stdout = output.stdout;
+
+    if !status.success() {
+        use zeroize::Zeroize as _;
+        stdout.zeroize();
         return Err(GitsshError::invalid_config(format!(
-            "SSH_ASKPASS program {askpass:?} exited with status {}",
-            output.status
+            "SSH_ASKPASS program {askpass:?} exited with status {status}"
         )));
     }
 
-    let raw = String::from_utf8_lossy(&output.stdout);
-    // Askpass programs conventionally append a newline — strip it before
-    // wrapping in Zeroizing so no partial secret copy remains.
-    let passphrase = raw.trim_end_matches('\n').to_owned();
+    // Reject non-UTF-8 output outright: a valid passphrase must be UTF-8,
+    // and using from_utf8_lossy would produce an unzeroized Cow<str>
+    // intermediate on the heap for invalid input.
+    let passphrase = match std::str::from_utf8(&stdout) {
+        Ok(raw) => raw.trim_end_matches('\n').to_owned(),
+        Err(_) => {
+            use zeroize::Zeroize as _;
+            stdout.zeroize();
+            return Err(GitsshError::invalid_config(
+                "SSH_ASKPASS program returned non-UTF-8 output",
+            ));
+        }
+    };
+
+    // Zero the raw buffer now that the passphrase has been copied out.
+    {
+        use zeroize::Zeroize as _;
+        stdout.zeroize();
+    }
 
     // An empty passphrase means the user cancelled the dialog (or the askpass
     // program — e.g. VS Code's ssh-askpass.sh — does not handle SSH key

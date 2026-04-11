@@ -51,7 +51,8 @@
       "WebFetch(domain:docs.github.com)",
       "Bash(printf '#!/bin/sh\\\\necho hunter2')",
       "Bash(SSH_ASKPASS=/tmp/fake-askpass SSH_ASKPASS_REQUIRE=force ./target/release/gitssh --test)",
-      "Bash(SSH_AUTH_SOCK=\"\" ./target/release/gitssh --identity /tmp/nonexistent_key github.com echo)"
+      "Bash(SSH_AUTH_SOCK=\"\" ./target/release/gitssh --identity /tmp/nonexistent_key github.com echo)",
+      "Bash(grep:*)"
     ]
   }
 }
