@@ -19,8 +19,8 @@ use std::sync::Arc;
 
 use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg};
 
-use crate::config::GitsshConfig;
-use crate::error::{GitsshError, GitsshErrorKind};
+use crate::config::GitwayConfig;
+use crate::error::{GitwayError, GitwayErrorKind};
 
 // ── Public resolution result ───────────────────────────────────────────────���──
 
@@ -54,7 +54,7 @@ pub enum IdentityResolution {
 /// A live connection to an SSH agent with its advertised identities.
 ///
 /// Obtained via [`connect_agent`].  The connection is used by
-/// [`GitsshSession::authenticate_with_agent`] to sign authentication
+/// [`GitwaySession::authenticate_with_agent`] to sign authentication
 /// challenges without ever loading the private key material into this process.
 #[cfg(unix)]
 pub struct AgentConnection {
@@ -82,14 +82,14 @@ impl fmt::Debug for AgentConnection {
 /// [`load_encrypted_key`] with the result.
 ///
 /// SSH agent fallback is handled separately by [`connect_agent`] and
-/// [`GitsshSession::authenticate_with_agent`]; this function covers only
+/// [`GitwaySession::authenticate_with_agent`]; this function covers only
 /// file-based identities.
 ///
 /// # Errors
 ///
 /// Returns an error only for unexpected failures (permission denied, corrupt
 /// key data, etc.).  A missing or encrypted key is not an error at this stage.
-pub fn find_identity(config: &GitsshConfig) -> Result<IdentityResolution, GitsshError> {
+pub fn find_identity(config: &GitwayConfig) -> Result<IdentityResolution, GitwayError> {
     // Priority 1: explicit --identity path.
     if let Some(ref path) = config.identity_file {
         return probe_key(path);
@@ -117,22 +117,22 @@ pub fn find_identity(config: &GitsshConfig) -> Result<IdentityResolution, Gitssh
 /// # Errors
 ///
 /// Returns an error if the passphrase is wrong or the file cannot be read.
-pub fn load_encrypted_key(path: &Path, passphrase: &str) -> Result<PrivateKey, GitsshError> {
-    russh::keys::load_secret_key(path, Some(passphrase)).map_err(GitsshError::from)
+pub fn load_encrypted_key(path: &Path, passphrase: &str) -> Result<PrivateKey, GitwayError> {
+    russh::keys::load_secret_key(path, Some(passphrase)).map_err(GitwayError::from)
 }
 
 /// Loads an OpenSSH certificate from `path` (FR-12).
 ///
 /// The certificate is presented alongside the private key during
-/// [`GitsshSession::authenticate_with_cert`].
+/// [`GitwaySession::authenticate_with_cert`].
 ///
 /// # Errors
 ///
 /// Returns an error if the file cannot be read or is not a valid OpenSSH
 /// certificate.
-pub fn load_cert(path: &Path) -> Result<russh::keys::Certificate, GitsshError> {
+pub fn load_cert(path: &Path) -> Result<russh::keys::Certificate, GitwayError> {
     russh::keys::load_openssh_certificate(path)
-        .map_err(|e| GitsshError::from(russh::keys::Error::from(e)))
+        .map_err(|e| GitwayError::from(russh::keys::Error::from(e)))
 }
 
 /// Wraps a [`PrivateKey`] with the appropriate RSA hash algorithm.
@@ -161,7 +161,7 @@ pub fn wrap_key(key: PrivateKey, rsa_hash: Option<HashAlg>) -> PrivateKeyWithHas
 /// Returns an error on socket read/write failures after a connection has been
 /// established.
 #[cfg(unix)]
-pub async fn connect_agent() -> Result<Option<AgentConnection>, GitsshError> {
+pub async fn connect_agent() -> Result<Option<AgentConnection>, GitwayError> {
     use russh::keys::agent::client::AgentClient;
 
     let mut client = match AgentClient::connect_env().await {
@@ -174,13 +174,13 @@ pub async fn connect_agent() -> Result<Option<AgentConnection>, GitsshError> {
             log::debug!("auth: SSH_AUTH_SOCK socket not found; skipping agent");
             return Ok(None);
         }
-        Err(e) => return Err(GitsshError::from(e)),
+        Err(e) => return Err(GitwayError::from(e)),
     };
 
     let identities = client
         .request_identities()
         .await
-        .map_err(GitsshError::from)?;
+        .map_err(GitwayError::from)?;
 
     if identities.is_empty() {
         log::debug!("auth: SSH agent has no identities");
@@ -221,7 +221,7 @@ fn default_key_paths() -> Vec<PathBuf> {
 /// - `Encrypted` if the key exists but needs a passphrase.
 /// - `NotFound` if the file does not exist.
 /// - `Err` on any other failure.
-fn probe_key(path: &Path) -> Result<IdentityResolution, GitsshError> {
+fn probe_key(path: &Path) -> Result<IdentityResolution, GitwayError> {
     match russh::keys::load_secret_key(path, None) {
         Ok(key) => {
             log::debug!("auth: loaded identity key from {}", path.display());
@@ -247,7 +247,7 @@ fn probe_key(path: &Path) -> Result<IdentityResolution, GitsshError> {
             // File does not exist — not an error at probe time.
             Ok(IdentityResolution::NotFound)
         }
-        Err(e) => Err(GitsshError::new(GitsshErrorKind::Keys(e))),
+        Err(e) => Err(GitwayError::new(GitwayErrorKind::Keys(e))),
     }
 }
 
@@ -261,8 +261,8 @@ mod tests {
 
     #[test]
     fn explicit_nonexistent_path_returns_not_found() {
-        let config = GitsshConfig::builder("github.com")
-            .identity_file("/tmp/gitssh_test_nonexistent_key_xyz")
+        let config = GitwayConfig::builder("github.com")
+            .identity_file("/tmp/gitway_test_nonexistent_key_xyz")
             .build();
         let result = find_identity(&config).unwrap();
         assert!(matches!(result, IdentityResolution::NotFound));
@@ -273,8 +273,8 @@ mod tests {
         // Point --identity at a nonexistent file; find_identity must probe
         // only that path and return NotFound — it must NOT fall through to
         // the default ~/.ssh search.
-        let config = GitsshConfig::builder("github.com")
-            .identity_file("/tmp/gitssh_test_explicit_priority_xyz")
+        let config = GitwayConfig::builder("github.com")
+            .identity_file("/tmp/gitway_test_explicit_priority_xyz")
             .build();
         let result = find_identity(&config).unwrap();
         // The file doesn't exist so we get NotFound, but crucially the
@@ -289,7 +289,7 @@ mod tests {
     fn no_identity_file_falls_through_to_defaults() {
         // Without --identity, find_identity walks ~/.ssh/*.  Even if no key
         // is present, it must return NotFound (not panic or error).
-        let config = GitsshConfig::builder("github.com").build();
+        let config = GitwayConfig::builder("github.com").build();
         let result = find_identity(&config);
         assert!(
             result.is_ok(),
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn load_cert_nonexistent_file_returns_error() {
-        let result = load_cert(Path::new("/tmp/gitssh_test_nonexistent_cert_xyz.pub"));
+        let result = load_cert(Path::new("/tmp/gitway_test_nonexistent_cert_xyz.pub"));
         assert!(result.is_err(), "loading a missing cert must return Err");
     }
 

@@ -7,7 +7,7 @@
 #   test    — cargo test (unit + doc tests) on Linux, macOS, and Windows
 #   msrv    — cargo check on rust-version from Cargo.toml (currently 1.85)
 #
-# Integration tests (test_connection, test_clone) require GITSSH_INTEGRATION_TESTS=1
+# Integration tests (test_connection, test_clone) require GITWAY_INTEGRATION_TESTS=1
 # and a live SSH identity.  They are not run in CI to avoid flaky failures.
 
 name: CI
@@ -111,7 +111,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-test-
 
       - name: cargo test
-        # Integration tests are gated behind GITSSH_INTEGRATION_TESTS and are
+        # Integration tests are gated behind GITWAY_INTEGRATION_TESTS and are
         # not set here, so only unit and doc tests run in CI.
         run: cargo test
 
@@ -140,11 +140,11 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-size-
 
       - name: Build release binary
-        run: cargo build --release -p gitssh
+        run: cargo build --release -p gitway
 
       - name: Check binary size
         run: |
-          SIZE=$(stat -c%s target/release/gitssh)
+          SIZE=$(stat -c%s target/release/gitway)
           SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
           echo "Release binary: ${SIZE_MB} MB  (S2 limit: 10 MB)"
           if [ "$SIZE" -gt 10485760 ]; then

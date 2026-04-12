@@ -2,10 +2,10 @@
 // Rust guideline compliant 2026-04-05
 // S3: enforce zero unsafe in all project-owned code at compile time.
 #![forbid(unsafe_code)]
-//! # gitssh-lib
+//! # gitway-lib
 //!
-//! Purpose-built SSH transport library for Git operations against GitHub and
-//! GitHub Enterprise Server (GHE).
+//! Purpose-built SSH transport library for Git operations against GitHub,
+//! GitLab, Codeberg, and self-hosted Git instances.
 //!
 //! Written in pure Rust on top of [`russh`](https://docs.rs/russh) v0.59, it
 //! replaces the general-purpose `ssh` binary in the Git transport pipeline.
@@ -13,11 +13,17 @@
 //! ## Quick start
 //!
 //! ```no_run
-//! use gitssh_lib::{GitsshConfig, GitsshSession};
+//! use gitway_lib::{GitwayConfig, GitwaySession};
 //!
-//! # async fn doc() -> Result<(), gitssh_lib::GitsshError> {
-//! let config = GitsshConfig::github();
-//! let mut session = GitsshSession::connect(&config).await?;
+//! # async fn doc() -> Result<(), gitway_lib::GitwayError> {
+//! // GitHub
+//! let config = GitwayConfig::github();
+//! // GitLab
+//! let config = GitwayConfig::gitlab();
+//! // Codeberg
+//! let config = GitwayConfig::codeberg();
+//!
+//! let mut session = GitwaySession::connect(&config).await?;
 //! session.authenticate_best(&config).await?;
 //!
 //! let exit_code = session.exec("git-upload-pack 'user/repo.git'").await?;
@@ -28,10 +34,10 @@
 //!
 //! ## Design principles
 //!
-//! - **Pinned host keys** — GitHub's SHA-256 fingerprints are embedded; no
-//!   TOFU (Trust On First Use) for canonical GitHub hosts.
+//! - **Pinned host keys** — SHA-256 fingerprints for GitHub, GitLab, and
+//!   Codeberg are embedded; no TOFU (Trust On First Use) for known hosts.
 //! - **Narrow scope** — only exec channels; no PTY, SFTP, or port forwarding.
-//! - **No C runtime** — uses `ring` exclusively for cryptography.
+//! - **Post-quantum ready** — uses `aws-lc-rs` for cryptography.
 //! - **Metric / SI / ISO 8601** throughout all timestamps and measurements.
 
 pub mod auth;
@@ -43,6 +49,6 @@ pub mod session;
 
 // ── Flat re-exports (FR-23) ───────────────────────────────────────────────────
 
-pub use config::GitsshConfig;
-pub use error::GitsshError;
-pub use session::GitsshSession;
+pub use config::GitwayConfig;
+pub use error::GitwayError;
+pub use session::GitwaySession;

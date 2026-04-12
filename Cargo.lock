@@ -1053,23 +1053,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitssh"
-version = "0.1.0"
+name = "gitway"
+version = "0.3.0"
 dependencies = [
  "clap",
  "env_logger",
- "gitssh-lib",
+ "gitway-lib",
  "log",
  "mimalloc",
  "rpassword",
  "russh",
+ "serde_json",
  "tokio",
  "zeroize",
 ]
 
 [[package]]
-name = "gitssh-lib"
-version = "0.1.0"
+name = "gitway-lib"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "dirs",

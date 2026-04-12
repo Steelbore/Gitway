@@ -8,7 +8,7 @@
 # Requires: cargo install cargo-fuzz
 #           RUSTFLAGS="" (unset any platform-injected flags)
 [package]
-name    = "gitssh-fuzz"
+name    = "gitway-fuzz"
 version = "0.0.0"
 edition = "2021"
 publish = false
@@ -18,7 +18,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-gitssh-lib    = { path = "../gitssh-lib" }
+gitway-lib    = { path = "../gitway-lib" }
 tempfile      = "3"
 
 # Fuzz target binaries.  Each maps to a file in fuzz_targets/.

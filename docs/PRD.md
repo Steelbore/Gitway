@@ -1,14 +1,14 @@
-# **Gitssh — Product Requirements Document**
+# **Gitway — Product Requirements Document**
 
-**Prepared By:** [Mohamed Hammad](mailto:unbreakablemj@gmail.com)  
+**Prepared By:** [Mohamed Hammad](mailto:MJ@S3cure.me)  
 **Target Start Date:** Apr 3, 2026  
 **Status:** Draft
 
 # **1\. Overview**
 
-Gitssh is a purpose-built SSH transport client for Git operations against GitHub. Written in Rust on top of the russh library (v0.59.0), it replaces the general-purpose `ssh` binary in the Git transport pipeline. By narrowing scope to exactly what GitHub needs — public-key authentication, a single exec channel, and bidirectional stream relay — Gitssh eliminates external C dependencies, ships as a single static binary, and enforces GitHub-specific security defaults (pinned host keys, modern algorithms only) that a general-purpose SSH client cannot.
+Gitway is a purpose-built SSH transport client for Git operations against GitHub. Written in Rust on top of the russh library (v0.59.0), it replaces the general-purpose `ssh` binary in the Git transport pipeline. By narrowing scope to exactly what GitHub needs — public-key authentication, a single exec channel, and bidirectional stream relay — Gitway eliminates external C dependencies, ships as a single static binary, and enforces GitHub-specific security defaults (pinned host keys, modern algorithms only) that a general-purpose SSH client cannot.
 
-Gitssh is both a standalone CLI binary and a reusable Rust library crate.
+Gitway is both a standalone CLI binary and a reusable Rust library crate.
 
 # **2\. Problem Statement**
 
@@ -18,13 +18,13 @@ Developers who use Git over SSH today rely on OpenSSH (or, on Windows, PuTTY/Pag
 * **Fragile Trust:** Host-key trust is fragile — the first-connection TOFU (Trust On First Use) model means a developer who has never connected to `github.com` before must blindly accept a fingerprint.  
 * **Poor Consistency:** Windows users must choose between multiple different SSH versions, each with different agent models and configuration paths, leading to documented conflicts and errors.
 
-Gitssh solves these by being opinionated. It connects only to GitHub (and GitHub Enterprise), pins known host keys, searches for keys in a predictable order, and runs identically on Linux, macOS, and Windows.
+Gitway solves these by being opinionated. It connects only to GitHub (and GitHub Enterprise), pins known host keys, searches for keys in a predictable order, and runs identically on Linux, macOS, and Windows.
 
 # **3\. Target Users**
 
 * **Primary:** Individual developers and DevOps engineers who use Git over SSH and want zero-configuration portability.  
 * **Secondary:** CI/CD pipelines cloning private repositories over SSH that benefit from a single static binary with no runtime dependencies.  
-* **Tertiary:** Tooling authors who embed Gitssh as a library crate to implement Git transport without shelling out to external processes.
+* **Tertiary:** Tooling authors who embed Gitway as a library crate to implement Git transport without shelling out to external processes.
 
 # **4\. Goals and Non-Goals**
 
@@ -36,7 +36,7 @@ Gitssh solves these by being opinionated. It connects only to GitHub (and GitHub
 * **G4.** Pin GitHub's published SSH host-key fingerprints and reject mismatches.  
 * **G5.** Discover keys automatically from well-known filesystem paths and platform SSH agents.  
 * **G6.** Maintain a single codebase with no C toolchain required at runtime.  
-* **G7.** Expose a library crate (`gitssh-lib`) for programmatic access.
+* **G7.** Expose a library crate (`gitway-lib`) for programmatic access.
 
 ## **Non-Goals**
 
@@ -51,7 +51,7 @@ Gitssh solves these by being opinionated. It connects only to GitHub (and GitHub
 
 ## **5.1 Connection Establishment**
 
-* **FR-1.** Gitssh connects to `github.com:22` by default with a fallback to `ssh.github.com:443`.  
+* **FR-1.** Gitway connects to `github.com:22` by default with a fallback to `ssh.github.com:443`.  
 * **FR-2.** Handshake negotiates key exchange using `curve25519-sha256@libssh.org` as the preferred algorithm.  
 * **FR-3.** The preferred cipher is `chacha20-poly1305@openssh.com`.  
 * **FR-4.** Client announces `server-sig-algs` extension support.  
@@ -59,8 +59,8 @@ Gitssh solves these by being opinionated. It connects only to GitHub (and GitHub
 
 ## **5.2 Host-Key Verification**
 
-* **FR-6.** Gitssh embeds GitHub's published fingerprints for Ed25519, ECDSA, and RSA.  
-* **FR-7.** Support for GitHub Enterprise Server domains via `~/.config/gitssh/known_hosts`.  
+* **FR-6.** Gitway embeds GitHub's published fingerprints for Ed25519, ECDSA, and RSA.  
+* **FR-7.** Support for GitHub Enterprise Server domains via `~/.config/gitway/known_hosts`.  
 * **FR-8.** Provide a `--insecure-skip-host-check` flag for emergencies.
 
 ## **5.3 Authentication**
@@ -80,15 +80,15 @@ Gitssh solves these by being opinionated. It connects only to GitHub (and GitHub
 
 ## **5.5 CLI Interface**
 
-* **FR-18.** Invoke as: `gitssh [OPTIONS] <host> <command...>`.  
+* **FR-18.** Invoke as: `gitway [OPTIONS] <host> <command...>`.  
 * **FR-19.** Support options for identity, port, certificates, verbose logging, and installation.  
 * **FR-20.** Silently ignore unknown `-o` options for compatibility.  
-* **FR-21.** `gitssh --test` verifies connectivity and displays the GitHub banner.  
-* **FR-22.** `gitssh --install` updates the global Git configuration.
+* **FR-21.** `gitway --test` verifies connectivity and displays the GitHub banner.  
+* **FR-22.** `gitway --install` updates the global Git configuration.
 
 ## **5.6 Library API**
 
-* **FR-23.** Expose `GitsshSession`, `GitsshConfig`, and `GitsshError`.  
+* **FR-23.** Expose `GitwaySession`, `GitwayConfig`, and `GitwayError`.  
 * **FR-24.** Provide methods for connecting, executing commands, and closing sessions.
 
 # **6\. Non-Functional Requirements**
@@ -123,17 +123,17 @@ Gitssh solves these by being opinionated. It connects only to GitHub (and GitHub
 t  
 gitssh/  
 ├── Cargo.toml               \# workspace root  
-├── gitssh-lib/  
+├── gitway-lib/  
 │   ├── Cargo.toml            \# library crate  
 │   └── src/  
 │       ├── lib.rs            \# public API re-exports  
-│       ├── session.rs        \# GitsshSession logic  
+│       ├── session.rs        \# GitwaySession logic  
 │       ├── auth.rs           \# key discovery/agent  
 │       ├── hostkey.rs        \# fingerprint pinning  
 │       ├── relay.rs          \# bidirectional relay  
 │       ├── config.rs         \# config builder  
 │       └── error.rs          \# error types  
-├── gitssh-cli/  
+├── gitway-cli/  
 │   ├── Cargo.toml            \# binary crate  
 │   └── src/  
 │       ├── main.rs           \# entry point  
@@ -146,7 +146,7 @@ gitssh/
 
 \`\`\`toml
 
-\# gitssh-lib/Cargo.toml
+\# gitway-lib/Cargo.toml
 
 \[dependencies\]
 
@@ -164,11 +164,11 @@ dirs           \= "6"
 
 zeroize        \= "1.7"
 
-\# gitssh-cli/Cargo.toml
+\# gitway-cli/Cargo.toml
 
 \[dependencies\]
 
-gitssh-lib     \= { path \= "../gitssh-lib" }
+gitway-lib     \= { path \= "../gitway-lib" }
 
 clap           \= { version \= "4", features \= \["derive"\] }
 
@@ -182,9 +182,9 @@ The relay module spawns two concurrent tokio tasks: one copying `tokio::io::stdi
 
 ## **7.4 Handler Implementation**
 
-struct GitsshHandler { expected\_fingerprints: Vec\<String\> }
+struct GitwayHandler { expected\_fingerprints: Vec\<String\> }
 
-impl client::Handler for GitsshHandler {
+impl client::Handler for GitwayHandler {
 
     type Error \= russh::Error;
 
@@ -221,7 +221,7 @@ impl client::Handler for GitsshHandler {
 
 * **Unit Tests:** Cover key-discovery, fingerprint comparison, and CLI parsing.  
 * **Integration Tests:** Gated real-world connections to `github.com`.  
-* **Compatibility Tests:** Run Git's official transport test scripts against Gitssh.  
+* **Compatibility Tests:** Run Git's official transport test scripts against Gitway.  
 * **CI Matrix:** Multi-platform testing via GitHub Actions (Ubuntu, macOS, Windows).
 
 # **10\. Risks and Mitigations**
@@ -239,7 +239,7 @@ impl client::Handler for GitsshHandler {
 
 # **12\. Open Questions**
 
-1. Should Gitssh support `~/.ssh/config` parsing? (Recommendation: Defer to v1.1).  
+1. Should Gitway support `~/.ssh/config` parsing? (Recommendation: Defer to v1.1).  
 2. Should the library support non-GitHub hosts? (Recommendation: Yes, via `custom_host` builder).  
-3. Should Gitssh include a built-in key generator? (Recommendation: No, leave to dedicated tools).
+3. Should Gitway include a built-in key generator? (Recommendation: No, leave to dedicated tools).
 

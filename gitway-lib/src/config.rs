@@ -5,10 +5,20 @@
 //! # Examples
 //!
 //! ```rust
-//! use gitssh_lib::GitsshConfig;
+//! use gitway_lib::GitwayConfig;
 //! use std::time::Duration;
 //!
-//! let config = GitsshConfig::builder("github.com")
+//! // Connect to GitHub (default):
+//! let config = GitwayConfig::github();
+//!
+//! // Connect to GitLab:
+//! let config = GitwayConfig::gitlab();
+//!
+//! // Connect to Codeberg:
+//! let config = GitwayConfig::codeberg();
+//!
+//! // Connect to any host with a custom port:
+//! let config = GitwayConfig::builder("git.example.com")
 //!     .port(22)
 //!     .username("git")
 //!     .inactivity_timeout(Duration::from_secs(60))
@@ -18,20 +28,25 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::hostkey::{DEFAULT_GITHUB_HOST, DEFAULT_PORT, FALLBACK_HOST, FALLBACK_PORT};
+use crate::hostkey::{
+    DEFAULT_CODEBERG_HOST, DEFAULT_GITHUB_HOST, DEFAULT_GITLAB_HOST, DEFAULT_PORT,
+    FALLBACK_PORT, GITHUB_FALLBACK_HOST, GITLAB_FALLBACK_HOST,
+};
 
 // ── Public config type ────────────────────────────────────────────────────────
 
-/// Immutable configuration for a [`GitsshSession`](crate::GitsshSession).
+/// Immutable configuration for a [`GitwaySession`](crate::GitwaySession).
 ///
-/// Construct via [`GitsshConfig::builder`].
+/// Construct via [`GitwayConfig::builder`], or use one of the convenience
+/// constructors ([`github`](Self::github), [`gitlab`](Self::gitlab),
+/// [`codeberg`](Self::codeberg)) for the most common targets.
 #[derive(Debug, Clone)]
-pub struct GitsshConfig {
-    /// Primary SSH host (default: `github.com`).
+pub struct GitwayConfig {
+    /// Primary SSH host (e.g. `github.com`, `gitlab.com`, `codeberg.org`).
     pub host: String,
     /// Primary SSH port (default: 22).
     pub port: u16,
-    /// Remote username (always `git` for GitHub; FR-13).
+    /// Remote username (always `git` for hosted services; FR-13).
     pub username: String,
     /// Explicit identity file path supplied via `--identity`.
     pub identity_file: Option<PathBuf>,
@@ -44,40 +59,66 @@ pub struct GitsshConfig {
     /// GitHub's idle threshold is around 60 s; this is the configured
     /// client-side inactivity timeout, not a per-packet deadline.
     pub inactivity_timeout: Duration,
-    /// Path to a `known_hosts`-style file for GitHub Enterprise Server
-    /// domains (FR-7).  Format: one `hostname SHA256:<fp>` entry per line.
+    /// Path to a `known_hosts`-style file for custom or self-hosted instances
+    /// (FR-7).  Format: one `hostname SHA256:<fp>` entry per line.
     pub custom_known_hosts: Option<PathBuf>,
     /// Enable verbose debug logging when `true`.
     pub verbose: bool,
     /// Optional fallback host when port 22 is unavailable (FR-1).
     ///
-    /// Defaults to `ssh.github.com:443`.
+    /// GitHub: `ssh.github.com:443`. GitLab: `altssh.gitlab.com:443`.
+    /// Codeberg has no published port-443 fallback.
     pub fallback: Option<(String, u16)>,
 }
 
-impl GitsshConfig {
+impl GitwayConfig {
     /// Begin building a config targeting `host`.
     ///
-    /// All optional fields default to sensible values for GitHub.com.
-    pub fn builder(host: impl Into<String>) -> GitsshConfigBuilder {
-        GitsshConfigBuilder::new(host.into())
+    /// All optional fields default to sensible values. No fallback host is
+    /// set by default; use the provider-specific convenience constructors
+    /// ([`github`](Self::github), [`gitlab`](Self::gitlab)) if you want the
+    /// port-443 fallback pre-configured.
+    pub fn builder(host: impl Into<String>) -> GitwayConfigBuilder {
+        GitwayConfigBuilder::new(host.into())
     }
 
-    /// Convenience constructor for the default GitHub target.
+    /// Convenience constructor for the default GitHub target (`github.com:22`).
+    ///
+    /// Includes the `ssh.github.com:443` fallback pre-configured.
     #[must_use]
     pub fn github() -> Self {
-        Self::builder(DEFAULT_GITHUB_HOST).build()
+        Self::builder(DEFAULT_GITHUB_HOST)
+            .fallback(Some((GITHUB_FALLBACK_HOST.to_owned(), FALLBACK_PORT)))
+            .build()
+    }
+
+    /// Convenience constructor for the default GitLab target (`gitlab.com:22`).
+    ///
+    /// Includes the `altssh.gitlab.com:443` fallback pre-configured.
+    #[must_use]
+    pub fn gitlab() -> Self {
+        Self::builder(DEFAULT_GITLAB_HOST)
+            .fallback(Some((GITLAB_FALLBACK_HOST.to_owned(), FALLBACK_PORT)))
+            .build()
+    }
+
+    /// Convenience constructor for Codeberg (`codeberg.org:22`).
+    ///
+    /// Codeberg has no published port-443 SSH fallback; no fallback is set.
+    #[must_use]
+    pub fn codeberg() -> Self {
+        Self::builder(DEFAULT_CODEBERG_HOST).build()
     }
 }
 
 // ── Builder ───────────────────────────────────────────────────────────────────
 
-/// Builder for [`GitsshConfig`].
+/// Builder for [`GitwayConfig`].
 ///
-/// Obtained via [`GitsshConfig::builder`].
+/// Obtained via [`GitwayConfig::builder`].
 #[derive(Debug)]
 #[must_use]
-pub struct GitsshConfigBuilder {
+pub struct GitwayConfigBuilder {
     host: String,
     port: u16,
     username: String,
@@ -90,7 +131,7 @@ pub struct GitsshConfigBuilder {
     fallback: Option<(String, u16)>,
 }
 
-impl GitsshConfigBuilder {
+impl GitwayConfigBuilder {
     fn new(host: String) -> Self {
         Self {
             host,
@@ -99,13 +140,15 @@ impl GitsshConfigBuilder {
             identity_file: None,
             cert_file: None,
             skip_host_check: false,
-            // 60 seconds — large enough to survive slow GitHub responses.
+            // 60 seconds — large enough to survive slow host responses.
             // Changing this below ~10 s risks spurious timeouts on congested
-            // links. See GitHub's own keepalive documentation.
+            // links.
             inactivity_timeout: Duration::from_secs(60),
             custom_known_hosts: None,
             verbose: false,
-            fallback: Some((FALLBACK_HOST.to_owned(), FALLBACK_PORT)),
+            // No fallback by default; provider-specific convenience
+            // constructors set this when a known fallback exists.
+            fallback: None,
         }
     }
 
@@ -145,7 +188,8 @@ impl GitsshConfigBuilder {
         self
     }
 
-    /// Path to a custom `known_hosts`-style file for GHE domains (FR-7).
+    /// Path to a custom `known_hosts`-style file for self-hosted instances
+    /// (FR-7).
     pub fn custom_known_hosts(mut self, path: impl Into<PathBuf>) -> Self {
         self.custom_known_hosts = Some(path.into());
         self
@@ -157,17 +201,16 @@ impl GitsshConfigBuilder {
         self
     }
 
-    /// Override the fallback host/port (default: `ssh.github.com:443`, FR-1).
-    /// Pass `None` to disable fallback.
+    /// Override the fallback host/port.  Pass `None` to disable fallback.
     pub fn fallback(mut self, fallback: Option<(String, u16)>) -> Self {
         self.fallback = fallback;
         self
     }
 
-    /// Finalise and return the [`GitsshConfig`].
+    /// Finalise and return the [`GitwayConfig`].
     #[must_use]
-    pub fn build(self) -> GitsshConfig {
-        GitsshConfig {
+    pub fn build(self) -> GitwayConfig {
+        GitwayConfig {
             host: self.host,
             port: self.port,
             username: self.username,

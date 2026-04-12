@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Compatibility workflow — Git transport test suite validation (NFR-8, S4).
 #
-# Runs Git's t5500-fetch-pack.sh and t5516-fetch-pack-v2.sh with gitssh as
+# Runs Git's t5500-fetch-pack.sh and t5516-fetch-pack-v2.sh with gitway as
 # the SSH transport.  These tests verify that the pack-protocol relay is
 # byte-for-byte compatible with what OpenSSH produces.
 #
@@ -47,15 +47,15 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-compat-
 
       - name: Build release binary
-        run: cargo build --release -p gitssh
+        run: cargo build --release -p gitway
 
       - name: Install SSH key from secret
         uses: shimataro/ssh-key-action@v2
         with:
-          key: ${{ secrets.GITSSH_TEST_KEY }}
+          key: ${{ secrets.GITWAY_TEST_KEY }}
           known_hosts: unnecessary
 
       - name: Run Git transport tests
         env:
-          GITSSH_BIN: ${{ github.workspace }}/target/release/gitssh
+          GITWAY_BIN: ${{ github.workspace }}/target/release/gitway
         run: ./scripts/run-git-transport-tests.sh

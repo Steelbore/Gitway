@@ -14,7 +14,7 @@ use tokio::io::AsyncWriteExt as _;
 use russh::client::Msg;
 use russh::{Channel, ChannelMsg, Sig};
 
-use crate::error::GitsshError;
+use crate::error::GitwayError;
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ use crate::error::GitsshError;
 /// # Errors
 ///
 /// Returns an error on SSH protocol failures or local I/O errors.
-pub async fn relay_channel(channel: Channel<Msg>) -> Result<u32, GitsshError> {
+pub async fn relay_channel(channel: Channel<Msg>) -> Result<u32, GitwayError> {
     let (mut read_half, write_half) = channel.split();
 
     // Spawn the stdin → channel task.

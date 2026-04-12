@@ -3,13 +3,13 @@
 # Run Git's transport test suite with gitssh as the SSH transport (NFR-8, S4).
 #
 # Prerequisites:
-#   - gitssh binary in PATH (or GITSSH_BIN set to full path)
+#   - gitway binary in PATH (or GITWAY_BIN set to full path)
 #   - git source tree at GIT_SRC (defaults to a fresh clone)
 #   - SSH credentials accessible (agent or identity file)
 #
 # Usage:
 #   ./scripts/run-git-transport-tests.sh
-#   GITSSH_BIN=./target/release/gitssh GIT_SRC=/tmp/git ./scripts/run-git-transport-tests.sh
+#   GITWAY_BIN=./target/release/gitway GIT_SRC=/tmp/git ./scripts/run-git-transport-tests.sh
 #
 # Tests run:
 #   t5500-fetch-pack.sh  — fetch-pack / upload-pack protocol
@@ -19,20 +19,20 @@
 
 set -euo pipefail
 
-GITSSH_BIN="${GITSSH_BIN:-$(command -v gitssh || echo "./target/release/gitssh")}"
+GITWAY_BIN="${GITWAY_BIN:-$(command -v gitway || echo "./target/release/gitway")}"
 GIT_SRC="${GIT_SRC:-/tmp/git-src}"
 GIT_TEST_DIR="${GIT_SRC}/t"
 
-# ── Resolve gitssh binary ────────────────────────────────────────────────────
+# ── Resolve gitway binary ────────────────────────────────────────────────────
 
-if [[ ! -x "${GITSSH_BIN}" ]]; then
-    echo "ERROR: gitssh binary not found at '${GITSSH_BIN}'" >&2
-    echo "       Run: cargo build --release && export GITSSH_BIN=./target/release/gitssh" >&2
+if [[ ! -x "${GITWAY_BIN}" ]]; then
+    echo "ERROR: gitway binary not found at '${GITWAY_BIN}'" >&2
+    echo "       Run: cargo build --release && export GITWAY_BIN=./target/release/gitway" >&2
     exit 1
 fi
 
-echo "Using gitssh: ${GITSSH_BIN}"
-"${GITSSH_BIN}" --test 2>/dev/null || true  # prints version, ignore auth failure
+echo "Using gitway: ${GITWAY_BIN}"
+"${GITWAY_BIN}" --test 2>/dev/null || true  # prints version, ignore auth failure
 
 # ── Clone git source if needed ───────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ make -C "${GIT_SRC}" -j"$(nproc)" 2>&1 | tail -5
 
 # ── Run the transport tests ──────────────────────────────────────────────────
 
-export GIT_SSH_COMMAND="${GITSSH_BIN}"
+export GIT_SSH_COMMAND="${GITWAY_BIN}"
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 
 echo "Running t5500-fetch-pack.sh..."

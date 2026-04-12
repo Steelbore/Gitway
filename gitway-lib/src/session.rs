@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Rust guideline compliant 2026-03-30
+// Updated 2026-04-12: added verified_fingerprint tracking for SFRS JSON output
 //! SSH session management (FR-1 through FR-5, FR-9 through FR-17).
 //!
-//! [`GitsshSession`] wraps a russh [`client::Handle`] and exposes the
+//! [`GitwaySession`] wraps a russh [`client::Handle`] and exposes the
 //! operations Gitssh needs: connect, authenticate, exec, and close.
 //!
 //! Host-key verification is performed inside [`GitsshHandler::check_server_key`]
@@ -17,8 +18,8 @@ use russh::client;
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg};
 use russh::{Disconnect, Preferred, cipher, kex};
 
-use crate::config::GitsshConfig;
-use crate::error::{GitsshError, GitsshErrorKind};
+use crate::config::GitwayConfig;
+use crate::error::{GitwayError, GitwayErrorKind};
 use crate::hostkey;
 use crate::relay;
 
@@ -37,6 +38,11 @@ struct GitsshHandler {
     ///
     /// GitHub sends "Hi <user>! You've successfully authenticated…" here.
     auth_banner: Arc<Mutex<Option<String>>>,
+    /// The SHA-256 fingerprint of the server key that passed verification.
+    ///
+    /// Set during `check_server_key`; exposed via
+    /// [`GitwaySession::verified_fingerprint`] for structured JSON output.
+    verified_fingerprint: Arc<Mutex<Option<String>>>,
 }
 
 impl fmt::Debug for GitsshHandler {
@@ -45,12 +51,13 @@ impl fmt::Debug for GitsshHandler {
             .field("fingerprints", &self.fingerprints)
             .field("skip_check", &self.skip_check)
             .field("auth_banner", &self.auth_banner)
+            .field("verified_fingerprint", &self.verified_fingerprint)
             .finish()
     }
 }
 
 impl client::Handler for GitsshHandler {
-    type Error = GitsshError;
+    type Error = GitwayError;
 
     async fn check_server_key(
         &mut self,
@@ -69,9 +76,12 @@ impl client::Handler for GitsshHandler {
 
         if self.fingerprints.iter().any(|f| f == &fp) {
             log::debug!("session: host key verified: {fp}");
+            if let Ok(mut guard) = self.verified_fingerprint.lock() {
+                *guard = Some(fp);
+            }
             Ok(true)
         } else {
-            Err(GitsshError::host_key_mismatch(fp))
+            Err(GitwayError::host_key_mismatch(fp))
         }
     }
 
@@ -96,29 +106,31 @@ impl client::Handler for GitsshHandler {
 /// # Typical Usage
 ///
 /// ```no_run
-/// use gitssh_lib::{GitsshConfig, GitsshSession};
+/// use gitway_lib::{GitwayConfig, GitwaySession};
 ///
-/// # async fn doc() -> Result<(), gitssh_lib::GitsshError> {
-/// let config = GitsshConfig::github();
-/// let mut session = GitsshSession::connect(&config).await?;
+/// # async fn doc() -> Result<(), gitway_lib::GitwayError> {
+/// let config = GitwayConfig::github();
+/// let mut session = GitwaySession::connect(&config).await?;
 /// // authenticate, exec, close…
 /// # Ok(())
 /// # }
 /// ```
-pub struct GitsshSession {
+pub struct GitwaySession {
     handle: client::Handle<GitsshHandler>,
     /// Authentication banner received from the server, if any.
     auth_banner: Arc<Mutex<Option<String>>>,
+    /// SHA-256 fingerprint of the server key that passed verification, if any.
+    verified_fingerprint: Arc<Mutex<Option<String>>>,
 }
 
 /// Manual Debug impl because `client::Handle<H>` does not implement `Debug`.
-impl fmt::Debug for GitsshSession {
+impl fmt::Debug for GitwaySession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GitsshSession").finish_non_exhaustive()
+        f.debug_struct("GitwaySession").finish_non_exhaustive()
     }
 }
 
-impl GitsshSession {
+impl GitwaySession {
     // ── Construction ─────────────────────────────────────────────────────────
 
     /// Establishes a TCP connection to the host in `config` and completes the
@@ -131,16 +143,18 @@ impl GitsshSession {
     ///
     /// Returns an error on network failure or if the server's host key does not
     /// match any pinned fingerprint.
-    pub async fn connect(config: &GitsshConfig) -> Result<Self, GitsshError> {
+    pub async fn connect(config: &GitwayConfig) -> Result<Self, GitwayError> {
         let russh_cfg = Arc::new(build_russh_config(config.inactivity_timeout));
         let fingerprints =
             hostkey::fingerprints_for_host(&config.host, &config.custom_known_hosts)?;
         let auth_banner = Arc::new(Mutex::new(None));
+        let verified_fingerprint = Arc::new(Mutex::new(None));
 
         let handler = GitsshHandler {
             fingerprints,
             skip_check: config.skip_host_check,
             auth_banner: Arc::clone(&auth_banner),
+            verified_fingerprint: Arc::clone(&verified_fingerprint),
         };
 
         log::debug!("session: connecting to {}:{}", config.host, config.port);
@@ -154,7 +168,7 @@ impl GitsshSession {
 
         log::debug!("session: SSH handshake complete with {}", config.host);
 
-        Ok(Self { handle, auth_banner })
+        Ok(Self { handle, auth_banner, verified_fingerprint })
     }
 
     // ── Authentication ────────────────────────────────────────────────────────
@@ -167,13 +181,13 @@ impl GitsshSession {
     /// # Errors
     ///
     /// Returns an error on SSH protocol failures.  Returns
-    /// [`GitsshError::is_authentication_failed`] when the server accepts the
+    /// [`GitwayError::is_authentication_failed`] when the server accepts the
     /// exchange but rejects the key.
     pub async fn authenticate(
         &mut self,
         username: &str,
         key: PrivateKeyWithHashAlg,
-    ) -> Result<(), GitsshError> {
+    ) -> Result<(), GitwayError> {
         log::debug!("session: authenticating as {username}");
 
         let result = self.handle.authenticate_publickey(username, key).await?;
@@ -182,7 +196,7 @@ impl GitsshSession {
             log::debug!("session: authentication succeeded for {username}");
             Ok(())
         } else {
-            Err(GitsshError::authentication_failed())
+            Err(GitwayError::authentication_failed())
         }
     }
 
@@ -203,7 +217,7 @@ impl GitsshSession {
         username: &str,
         key: russh::keys::PrivateKey,
         cert: russh::keys::Certificate,
-    ) -> Result<(), GitsshError> {
+    ) -> Result<(), GitwayError> {
         log::debug!("session: authenticating as {username} with OpenSSH certificate");
 
         let result = self
@@ -215,7 +229,7 @@ impl GitsshSession {
             log::debug!("session: certificate authentication succeeded for {username}");
             Ok(())
         } else {
-            Err(GitsshError::authentication_failed())
+            Err(GitwayError::authentication_failed())
         }
     }
 
@@ -231,15 +245,15 @@ impl GitsshSession {
     /// for file-based keys.
     ///
     /// When the chosen key requires a passphrase this method returns an error
-    /// whose [`is_key_encrypted`](GitsshError::is_key_encrypted) predicate is
+    /// whose [`is_key_encrypted`](GitwayError::is_key_encrypted) predicate is
     /// `true`; the caller (CLI layer) should then prompt and call
     /// [`authenticate_with_passphrase`](Self::authenticate_with_passphrase).
     ///
     /// # Errors
     ///
-    /// Returns [`GitsshError::is_no_key_found`] when no key is available via
+    /// Returns [`GitwayError::is_no_key_found`] when no key is available via
     /// any discovery method.
-    pub async fn authenticate_best(&mut self, config: &GitsshConfig) -> Result<(), GitsshError> {
+    pub async fn authenticate_best(&mut self, config: &GitwayConfig) -> Result<(), GitwayError> {
         use crate::auth::{IdentityResolution, find_identity, wrap_key};
 
         let resolution = find_identity(config)?;
@@ -255,7 +269,7 @@ impl GitsshSession {
                 );
                 // Try the agent before asking for a passphrase.  The key may
                 // already be loaded via `ssh-add`, and a passphrase prompt is
-                // impossible when gitssh is spawned by Git without a terminal.
+                // impossible when gitway is spawned by Git without a terminal.
                 #[cfg(unix)]
                 {
                     use crate::auth::connect_agent;
@@ -273,7 +287,7 @@ impl GitsshSession {
                         }
                     }
                 }
-                return Err(GitsshError::new(GitsshErrorKind::Keys(
+                return Err(GitwayError::new(GitwayErrorKind::Keys(
                     russh::keys::Error::KeyIsEncrypted,
                 )));
             }
@@ -295,7 +309,7 @@ impl GitsshSession {
         // This branch is only reached when we must still try a key via wrap_key
         // after exhausting the above — currently unused, but kept for clarity.
         let _ = wrap_key; // suppress unused-import warning on non-Unix builds
-        Err(GitsshError::no_key_found())
+        Err(GitwayError::no_key_found())
     }
 
     /// Loads an encrypted key with `passphrase` and authenticates.
@@ -311,10 +325,10 @@ impl GitsshSession {
     /// Returns an error if the passphrase is wrong or authentication fails.
     pub async fn authenticate_with_passphrase(
         &mut self,
-        config: &GitsshConfig,
+        config: &GitwayConfig,
         path: &std::path::Path,
         passphrase: &str,
-    ) -> Result<(), GitsshError> {
+    ) -> Result<(), GitwayError> {
         use crate::auth::load_encrypted_key;
 
         let key = load_encrypted_key(path, passphrase)?;
@@ -331,14 +345,14 @@ impl GitsshSession {
     ///
     /// # Errors
     ///
-    /// Returns [`GitsshError::is_authentication_failed`] if all identities are
-    /// rejected, or [`GitsshError::is_no_key_found`] if the agent was empty.
+    /// Returns [`GitwayError::is_authentication_failed`] if all identities are
+    /// rejected, or [`GitwayError::is_no_key_found`] if the agent was empty.
     #[cfg(unix)]
     pub async fn authenticate_with_agent(
         &mut self,
         username: &str,
         mut conn: crate::auth::AgentConnection,
-    ) -> Result<(), GitsshError> {
+    ) -> Result<(), GitwayError> {
         use russh::keys::agent::AgentIdentity;
 
         for identity in conn.identities.clone() {
@@ -362,7 +376,7 @@ impl GitsshSession {
                             &mut conn.client,
                         )
                         .await
-                        .map_err(GitsshError::from)
+                        .map_err(GitwayError::from)
                 }
                 AgentIdentity::Certificate { certificate, .. } => {
                     self.handle
@@ -373,7 +387,7 @@ impl GitsshSession {
                             &mut conn.client,
                         )
                         .await
-                        .map_err(GitsshError::from)
+                        .map_err(GitwayError::from)
                 }
             };
 
@@ -388,7 +402,7 @@ impl GitsshSession {
             }
         }
 
-        Err(GitsshError::no_key_found())
+        Err(GitwayError::no_key_found())
     }
 
     // ── Exec / relay ──────────────────────────────────────────────────────────
@@ -402,7 +416,7 @@ impl GitsshSession {
     /// # Errors
     ///
     /// Returns an error on channel open failure or SSH protocol errors.
-    pub async fn exec(&mut self, command: &str) -> Result<u32, GitsshError> {
+    pub async fn exec(&mut self, command: &str) -> Result<u32, GitwayError> {
         log::debug!("session: opening exec channel for '{command}'");
 
         let channel = self.handle.channel_open_session().await?;
@@ -422,7 +436,7 @@ impl GitsshSession {
     /// # Errors
     ///
     /// Returns an error if the disconnect message cannot be sent.
-    pub async fn close(self) -> Result<(), GitsshError> {
+    pub async fn close(self) -> Result<(), GitwayError> {
         self.handle
             .disconnect(Disconnect::ByApplication, "", "English")
             .await?;
@@ -447,15 +461,31 @@ impl GitsshSession {
             .clone()
     }
 
+    /// Returns the SHA-256 fingerprint of the server key that was verified.
+    ///
+    /// Available after a successful [`connect`](Self::connect).  Returns `None`
+    /// when host-key verification was skipped (`--insecure-skip-host-check`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned — a programming error.
+    #[must_use]
+    pub fn verified_fingerprint(&self) -> Option<String> {
+        self.verified_fingerprint
+            .lock()
+            .expect("verified_fingerprint lock is not poisoned")
+            .clone()
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     /// Authenticates with `key`, using certificate auth if `config.cert_file`
     /// is set (FR-12), otherwise plain public-key auth (FR-11).
     async fn auth_key_or_cert(
         &mut self,
-        config: &GitsshConfig,
+        config: &GitwayConfig,
         key: russh::keys::PrivateKey,
-    ) -> Result<(), GitsshError> {
+    ) -> Result<(), GitwayError> {
         use crate::auth::{load_cert, wrap_key};
 
         if let Some(ref cert_path) = config.cert_file {

@@ -1,8 +1,8 @@
-# Gitssh TODO
+# Gitway TODO
 
 ## Milestone 1: Proof of Life (Workspace scaffold, `session.rs`, `--test` flag working)
 
-- [✓] Initialize Cargo workspace (`gitssh`) with two crates: `gitssh-lib` and `gitssh-cli`.
+- [✓] Initialize Cargo workspace (`gitway`) with two crates: `gitway-lib` and `gitway-cli`.
 - [✓] Set up `Cargo.toml` dependencies (`russh`, `tokio`, `ssh-key`, `clap`, `thiserror`, `log`, etc.).
 - [✓] Create CLI entry point (`cli.rs`) and argument parsing using `clap` for all flags defined in PRD (FR-18, 19).
 - [✓] Implement `--test` argument logic (FR-21) to verify connection without full relay.
@@ -24,18 +24,18 @@
 - [✓] Spawn bidirectional relay tasks for stdout, stdin, and stderr channels (FR-15).
 - [✓] Map remote exit codes back to local process, following OpenSSH exit codes (128+signal) (FR-16, 17).
 - [✓] Ensure stdin is closed appropriately when Git finishes pushing data.
-- [✓] Write `tests/test_clone.rs` integration test using `git clone` with `GIT_SSH_COMMAND=gitssh`.
+- [✓] Write `tests/test_clone.rs` integration test using `git clone` with `GIT_SSH_COMMAND=gitway`.
 
 ## Milestone 4: CLI Polish (`--install`, GHE support, `--insecure` escape hatch)
 
-- [✓] Add support for `~/.config/gitssh/known_hosts` for GHE domains (FR-7).
+- [✓] Add support for `~/.config/gitway/known_hosts` for GHE domains (FR-7).
 - [✓] Implement `--insecure-skip-host-check` flag logic (FR-8).
 - [✓] Silently ignore unknown `-o` config options (FR-20).
 - [✓] Implement `--install` to globally update `core.sshCommand` (FR-22).
 
 ## Milestone 5 & 6: Library API & Hardening
 
-- [✓] Expose `GitsshSession`, `GitsshConfig`, `GitsshError` cleanly in `lib.rs` (FR-23, 24).
+- [✓] Expose `GitwaySession`, `GitwayConfig`, `GitwayError` cleanly in `lib.rs` (FR-23, 24).
 - [✓] Setup `cargo clippy` and restrict `unwrap`, `expect`, `panic` (NFR-5).
 - [✓] Configure `CryptoVec` and secure memory handling (NFR-3).
 - [✓] Ensure cold-start connects <= 2s (NFR-1).
@@ -44,7 +44,7 @@
 ## Milestone 7: Distribution & Publication
 
 - [✓] Write `README.md` for the workspace root (install, usage, library quick-start).
-- [✓] Publish `gitssh-lib` to crates.io (requires README, categories, `cargo publish --dry-run`).
+- [✓] Publish `gitway-lib` to crates.io (requires README, categories, `cargo publish --dry-run`).
 - [✓] Add tag-triggered GitHub Actions release workflow: build static binaries (Linux x86-64, macOS arm64, Windows x86-64), upload as GitHub Release assets.
 - [✓] Extend the CI matrix to macOS and Windows runners.
 
@@ -59,7 +59,7 @@
 
 ## Milestone 9: Repository Cleanup & Consolidation
 
-- [✓] Remove stale `Gitssh/` duplicate directory.
+- [✓] Remove stale `Gitway/` duplicate directory.
 - [✓] Consolidate documentation into `docs/` (PRD, TODO, IDE_GUIDE).
 - [✓] Add `shell.nix` for NixOS dev environment with proper RUSTFLAGS handling.
 - [✓] Update workspace `Cargo.toml` to reference crates.io russh dependency.

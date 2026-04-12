@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Maintainer: Mohamed Hammad <MJ@S3cure.me>
+#
+# gitway-git — builds gitway from the latest git HEAD.
+# Use this package if you want the cutting edge, or if your architecture
+# is not covered by the pre-built binary (gitway-bin).
+#
+# Build dependencies: rust (stable), cargo, perl (required by aws-lc-rs),
+#                     gcc, pkg-config
+
+pkgname=gitway-git
+pkgver=r0.HEAD
+pkgrel=1
+pkgdesc="Purpose-built SSH transport client for Git hosting services (GitHub, GitLab, Codeberg) — git HEAD"
+arch=('x86_64' 'aarch64')
+url="https://github.com/steelbore/gitssh"
+license=('GPL-3.0-or-later')
+provides=('gitway')
+conflicts=('gitway' 'gitway-bin')
+makedepends=('rust' 'cargo' 'perl' 'gcc' 'pkg-config')
+
+source=("${pkgname}::git+https://github.com/steelbore/gitssh.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${srcdir}/${pkgname}"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd "${srcdir}/${pkgname}"
+  # Suppress NixOS-style RUSTFLAGS that may be inherited in unusual environments.
+  RUSTFLAGS="" cargo build --release -p gitway
+}
+
+check() {
+  cd "${srcdir}/${pkgname}"
+  RUSTFLAGS="" cargo test --workspace
+}
+
+package() {
+  cd "${srcdir}/${pkgname}"
+
+  install -Dm755 target/release/gitway  "${pkgdir}/usr/bin/gitway"
+  install -Dm644 README.md              "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 LICENSE                "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

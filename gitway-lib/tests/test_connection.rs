@@ -2,11 +2,11 @@
 //! Integration tests — real connections to github.com.
 //!
 //! These tests require network access and a valid SSH identity key.  They are
-//! gated behind the `GITSSH_INTEGRATION_TESTS` environment variable; set it to
+//! gated behind the `GITWAY_INTEGRATION_TESTS` environment variable; set it to
 //! any non-empty value to run them:
 //!
 //! ```shell
-//! GITSSH_INTEGRATION_TESTS=1 cargo test --test test_connection
+//! GITWAY_INTEGRATION_TESTS=1 cargo test --test test_connection
 //! ```
 //!
 //! The tests are intentionally excluded from the default `cargo test` run to
@@ -14,11 +14,11 @@
 
 use std::time::{Duration, Instant};
 
-use gitssh_lib::{GitsshConfig, GitsshSession, hostkey};
+use gitway_lib::{GitwayConfig, GitwaySession, hostkey};
 
 /// Returns `true` when integration tests are enabled.
 fn integration_enabled() -> bool {
-    std::env::var("GITSSH_INTEGRATION_TESTS")
+    std::env::var("GITWAY_INTEGRATION_TESTS")
         .map(|v| !v.is_empty())
         .unwrap_or(false)
 }
@@ -35,8 +35,8 @@ async fn connect_to_github_verifies_host_key() {
         return;
     }
 
-    let config = GitsshConfig::github();
-    let session = GitsshSession::connect(&config)
+    let config = GitwayConfig::github();
+    let session = GitwaySession::connect(&config)
         .await
         .expect("connection and host-key verification must succeed");
 
@@ -61,10 +61,10 @@ async fn host_key_mismatch_is_rejected() {
     let fake_fp = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
     // Verify the server is actually reachable first.
-    let reachability_config = GitsshConfig::builder("github.com")
+    let reachability_config = GitwayConfig::builder("github.com")
         .skip_host_check(true)
         .build();
-    let _s = GitsshSession::connect(&reachability_config)
+    let _s = GitwaySession::connect(&reachability_config)
         .await
         .expect("server must be reachable");
 
@@ -74,11 +74,11 @@ async fn host_key_mismatch_is_rejected() {
     std::fs::write(tmp.path(), format!("github.com {fake_fp}\n"))
         .expect("write temp known_hosts");
 
-    let config = GitsshConfig::builder("github.com")
+    let config = GitwayConfig::builder("github.com")
         .custom_known_hosts(tmp.path())
         .build();
 
-    let result = GitsshSession::connect(&config).await;
+    let result = GitwaySession::connect(&config).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
@@ -96,11 +96,11 @@ async fn insecure_skip_host_check_bypasses_verification() {
         return;
     }
 
-    let config = GitsshConfig::builder("github.com")
+    let config = GitwayConfig::builder("github.com")
         .skip_host_check(true)
         .build();
 
-    let session = GitsshSession::connect(&config)
+    let session = GitwaySession::connect(&config)
         .await
         .expect("connection must succeed with skip_host_check");
 
@@ -130,10 +130,10 @@ async fn cold_start_handshake_is_fast() {
         return;
     }
 
-    let config = GitsshConfig::github();
+    let config = GitwayConfig::github();
 
     let t0 = Instant::now();
-    let session = GitsshSession::connect(&config)
+    let session = GitwaySession::connect(&config)
         .await
         .expect("connection must succeed for timing test");
     let elapsed = t0.elapsed();

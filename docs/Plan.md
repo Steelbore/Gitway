@@ -1,13 +1,13 @@
-# **Gitssh — Project Plan**
+# **Gitway — Project Plan**
 
 A Git/GitHub-dedicated SSH client written in Rust, built on top of `russh` and tailored to GitHub's SSH protocol requirements.
 
-**Project Lead:** [Mohamed Hammad](mailto:unbreakablemj@gmail.com)  
+**Project Lead:** [Mohamed Hammad](mailto:MJ@S3cure.me)  
 **Target Date:** Apr 3, 2026
 
 # **1\. Project Goals and Scope**
 
-Gitssh is a standalone binary (and optionally a library) that replaces `ssh` for Git-over-SSH operations against GitHub. Its specific responsibilities are:
+Gitway is a standalone binary (and optionally a library) that replaces `ssh` for Git-over-SSH operations against GitHub. Its specific responsibilities are:
 
 * **Authentication:** Connect to `github.com:22` (or port 443 fallback) using an Ed25519 or RSA keypair, with optional OpenSSH certificate support.  
 * **Protocol Forwarding:** Forward the Git smart-HTTP protocol over the SSH channel (i.e., execute `git-upload-pack`, `git-receive-pack`, or `git-upload-archive` on the remote side).  
@@ -66,7 +66,7 @@ Choose exactly one crypto backend (\`aws-lc-rs\` recommended; \`ring\` works equ
 
 Model the CLI so that Git can invoke it as a replacement for \`ssh\`:
 
-\`gitssh \[OPTIONS\] \<host\> \<git-command\>\`
+\`gitway \[OPTIONS\] \<host\> \<git-command\>\`
 
 \*   \`-i, \--identity \<PATH\>\`: Private key file (default: \`\~/.ssh/id\_ed25519\`)
 
@@ -82,7 +82,7 @@ Model the CLI so that Git can invoke it as a replacement for \`ssh\`:
 
 \#\#\# 4.2 hostkey.rs — Host-Key Verification
 
-GitHub publishes its SSH public key fingerprints in its documentation. Gitssh hard-codes GitHub's Ed25519 fingerprint: \`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU\`.
+GitHub publishes its SSH public key fingerprints in its documentation. Gitway hard-codes GitHub's Ed25519 fingerprint: \`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU\`.
 
 \*\*Verification Steps:\*\*
 
@@ -110,7 +110,7 @@ This is the heart of the project. It handles the lifecycle of the connection, in
 
 \#\#\# 4.5 git\_channel.rs — Bidirectional Git Relay
 
-Git's transport protocol requires a bidirectional pipe. Gitssh extends basic execution to a full relay:
+Git's transport protocol requires a bidirectional pipe. Gitway extends basic execution to a full relay:
 
 \*   \`stdin\` → \`channel.make\_writer()\` (async copy)
 

@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Development shell for NixOS users.
+# Development shell for users without Nix flakes enabled.
 #
 # Usage:
 #   nix-shell              # enter the shell interactively
 #   nix-shell --run '...'  # run a single command
+#
+# If you have flake support enabled, prefer:
+#   nix develop
 #
 # After entering the shell, standard cargo commands work:
 #   cargo build --release
@@ -12,31 +15,37 @@
 { pkgs ? import <nixpkgs> { } }:
 
 pkgs.mkShell {
-  name = "gitssh-dev";
+  name = "gitway-dev";
 
-  buildInputs = with pkgs; [
-    # Rust toolchain (use rustup or nixpkgs rust).
+  nativeBuildInputs = with pkgs; [
+    # Rust toolchain via rustup so developers can pin versions freely.
     rustup
 
-    # C toolchain for the `aws-lc-rs` cryptography crate.
-    # Non-FIPS builds use precompiled artifacts, so cmake is optional.
-    gcc
+    # Required by the aws-lc-rs crate (assembly pre-processing step).
+    # Non-FIPS builds do NOT require cmake or go.
     perl
 
-    # Optional: for stripping release binaries.
+    # C toolchain for linking.
+    gcc
+
+    # Optional: strip release binaries.
     binutils
+
+    # Convenience tooling.
+    git
   ];
 
-  # Override NixOS defaults:
-  # - CFLAGS includes -flto=auto which can break crypto backend builds
-  # - RUSTFLAGS includes -C target-cpu=x86-64-v4 which requires AVX-512
-  CFLAGS = "-march=native -O2 -pipe";
+  # Override NixOS-injected flags that break aws-lc-rs:
+  # -flto=auto can fail during C compilation of the crypto backend.
+  # -C target-cpu=x86-64-v4 requires AVX-512 (not universally available).
+  CFLAGS    = "-march=native -O2 -pipe";
   RUSTFLAGS = "-C target-cpu=native";
 
   shellHook = ''
-    # Unset any inherited RUSTFLAGS from parent NixOS environment
+    # Unset any inherited RUSTFLAGS from the parent NixOS environment
+    # before applying ours, so they do not stack.
     unset RUSTFLAGS
     export RUSTFLAGS="-C target-cpu=native"
-    echo "gitssh dev shell ready. Run: cargo build --release"
+    echo "gitway dev shell ready. Run: cargo build --release"
   '';
 }

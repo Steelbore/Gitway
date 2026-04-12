@@ -1,4 +1,4 @@
-# Gitssh
+# Gitway
 
 Purpose-built SSH transport client for Git operations against GitHub and GitHub
 Enterprise Server (GHE).
@@ -9,7 +9,7 @@ Enterprise Server (GHE).
 
 ---
 
-## Why Gitssh?
+## Why Gitway?
 
 General-purpose SSH clients (`ssh`, PuTTY) carry complexity that Git doesn't
 need — interactive shells, tunneling, agent forwarding, hundreds of config
@@ -22,7 +22,7 @@ directives. That complexity causes three concrete pain points:
 - **Windows inconsistency** — multiple competing SSH implementations with
   incompatible agent protocols.
 
-Gitssh solves these by being opinionated: it connects only to GitHub, pins
+Gitway solves these by being opinionated: it connects only to GitHub, pins
 GitHub's published host-key fingerprints, searches for keys in a predictable
 order, and behaves identically on Linux, macOS, and Windows.
 
@@ -41,7 +41,7 @@ order, and behaves identically on Linux, macOS, and Windows.
   `~/.config/gitssh/known_hosts`.
 - **Drop-in replacement** — works with `GIT_SSH_COMMAND` and `core.sshCommand`
   exactly as `ssh` does.
-- **Library crate** — embed `gitssh-lib` directly in Rust projects for
+- **Library crate** — embed `gitway-lib` directly in Rust projects for
   programmatic Git transport.
 - **Single static binary** — no C runtime, no OpenSSL, no system SSH required.
 
@@ -70,11 +70,11 @@ cargo install --path gitssh-cli
 
 **All shells:**
 ```sh
-gitssh --install
-# Runs: git config --global core.sshCommand gitssh
+gitway --install
+# Runs: git config --global core.sshCommand gitway
 ```
 
-After this, every `git clone`, `git fetch`, and `git push` over SSH uses Gitssh
+After this, every `git clone`, `git fetch`, and `git push` over SSH uses Gitway
 automatically.
 
 ---
@@ -101,22 +101,22 @@ gitssh [OPTIONS] <host> <command...>
 
 **Verify connectivity:**
 ```sh
-gitssh --test
+gitway --test
 ```
 
 **Use a specific key:**
 ```sh
-gitssh --identity ~/.ssh/id_ed25519_github github.com git-upload-pack 'org/repo.git'
+gitway --identity ~/.ssh/id_ed25519_github github.com git-upload-pack 'org/repo.git'
 ```
 
 **Verbose debug output:**
 ```sh
-gitssh --verbose --test
+gitway --verbose --test
 ```
 
 **Target a GitHub Enterprise Server instance:**
 ```sh
-gitssh --port 22 ghe.corp.example.com git-upload-pack 'org/repo.git'
+gitway --port 22 ghe.corp.example.com git-upload-pack 'org/repo.git'
 ```
 
 **Use as GIT_SSH_COMMAND for a single operation:**
@@ -159,7 +159,7 @@ ssh-keyscan -t ed25519 ghe.corp.example.com | ssh-keygen -lf -
 
 ## Key discovery order
 
-For each connection, Gitssh searches for an identity in this fixed priority order:
+For each connection, Gitway searches for an identity in this fixed priority order:
 
 1. `--identity <FILE>` — explicit path from the command line
 2. `~/.ssh/id_ed25519`
@@ -167,7 +167,7 @@ For each connection, Gitssh searches for an identity in this fixed priority orde
 4. `~/.ssh/id_rsa`
 5. SSH agent via `$SSH_AUTH_SOCK` (Linux/macOS)
 
-If a key file is encrypted, Gitssh prompts for the passphrase on the terminal.
+If a key file is encrypted, Gitway prompts for the passphrase on the terminal.
 
 ---
 
@@ -177,18 +177,18 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-gitssh-lib = { git = "https://github.com/steelbore/gitssh" }
+gitway-lib = { git = "https://github.com/steelbore/gitssh" }
 ```
 
 ### Connect and run a Git command
 
 ```rust
-use gitssh_lib::{GitsshConfig, GitsshSession};
+use gitssh_lib::{GitwayConfig, GitwaySession};
 
 #[tokio::main]
-async fn main() -> Result<(), gitssh_lib::GitsshError> {
-    let config = GitsshConfig::github();
-    let mut session = GitsshSession::connect(&config).await?;
+async fn main() -> Result<(), gitssh_lib::GitwayError> {
+    let config = GitwayConfig::github();
+    let mut session = GitwaySession::connect(&config).await?;
     session.authenticate_best(&config).await?;
 
     let exit_code = session.exec("git-upload-pack 'org/repo.git'").await?;
@@ -201,10 +201,10 @@ async fn main() -> Result<(), gitssh_lib::GitsshError> {
 ### Target a GitHub Enterprise Server instance
 
 ```rust
-use gitssh_lib::GitsshConfig;
+use gitssh_lib::GitwayConfig;
 use std::path::PathBuf;
 
-let config = GitsshConfig::builder("ghe.corp.example.com")
+let config = GitwayConfig::builder("ghe.corp.example.com")
     .port(22)
     .identity_file(PathBuf::from("/home/user/.ssh/id_ed25519"))
     .build();
@@ -213,9 +213,9 @@ let config = GitsshConfig::builder("ghe.corp.example.com")
 ### Handle errors by category
 
 ```rust
-use gitssh_lib::GitsshError;
+use gitssh_lib::GitwayError;
 
-fn handle(err: &GitsshError) {
+fn handle(err: &GitwayError) {
     if err.is_host_key_mismatch() {
         eprintln!("Possible MITM — aborting.");
     } else if err.is_no_key_found() {
@@ -226,7 +226,7 @@ fn handle(err: &GitsshError) {
 }
 ```
 
-### `GitsshConfig` builder reference
+### `GitwayConfig` builder reference
 
 | Method | Default | Description |
 |---|---|---|
@@ -245,7 +245,7 @@ fn handle(err: &GitsshError) {
 
 ### Host-key pinning
 
-Gitssh embeds GitHub's published SHA-256 fingerprints for all three key types.
+Gitway embeds GitHub's published SHA-256 fingerprints for all three key types.
 On every connection the server's key is hashed and compared against this list;
 any mismatch aborts immediately with a `HostKeyMismatch` error.
 
@@ -273,7 +273,7 @@ allocation is released. Private key material in memory is managed by `russh`'s
 
 ```sh
 git clone https://github.com/steelbore/gitssh
-cd gitssh
+cd gitway
 
 # Requires a C compiler (gcc) for the aws-lc-rs cryptography crate.
 cargo build --release
@@ -287,7 +287,7 @@ The release binary is at `target/release/gitssh`.
 
 ```nu
 git clone https://github.com/steelbore/gitssh
-cd gitssh
+cd gitway
 cargo build --release
 ```
 
@@ -295,7 +295,7 @@ cargo build --release
 
 ```ion
 git clone https://github.com/steelbore/gitssh
-cd gitssh
+cd gitway
 cargo build --release
 ```
 
@@ -303,7 +303,7 @@ cargo build --release
 
 ```bash
 git clone https://github.com/steelbore/gitssh
-cd gitssh
+cd gitway
 cargo build --release
 ```
 
@@ -389,7 +389,7 @@ GITSSH_INTEGRATION_TESTS=1 cargo test --test test_clone
 
 ## Acknowledgments
 
-Gitssh is built on **[russh](https://github.com/warp-tech/russh)**, a
+Gitway is built on **[russh](https://github.com/warp-tech/russh)**, a
 pure-Rust SSH library originally written by
 [Pierre-Étienne Meunier](https://github.com/P-E-Meunier) and maintained by
 [Warp Technologies](https://warp.dev) and contributors.

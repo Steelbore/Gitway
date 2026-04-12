@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
-name        = "gitssh"
-description = "Purpose-built SSH transport client for Git operations against GitHub."
-keywords    = ["ssh", "git", "github", "cli"]
+name        = "gitway"
+description = "Purpose-built SSH transport client for Git hosting services (GitHub, GitLab, Codeberg)."
+keywords    = ["ssh", "git", "github", "gitlab", "cli"]
 categories  = ["command-line-utilities", "network-programming"]
+documentation = "https://github.com/steelbore/gitssh#readme"
 
 version.workspace      = true
 edition.workspace      = true
@@ -13,14 +14,36 @@ repository.workspace   = true
 rust-version.workspace = true
 
 [[bin]]
-name = "gitssh"
+name = "gitway"
 path = "src/main.rs"
+
+# ── Debian packaging (cargo-deb) ──────────────────────────────────────────────
+[package.metadata.deb]
+section  = "vcs"
+priority = "optional"
+assets   = [
+  # Install the release binary.
+  ["target/release/gitway", "usr/bin/", "755"],
+  # Install documentation.
+  ["../README.md", "usr/share/doc/gitway/README.md", "644"],
+  ["../LICENSE",   "usr/share/licenses/gitway/LICENSE", "644"],
+]
+
+# ── RPM packaging (cargo-generate-rpm) ───────────────────────────────────────
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/gitway", dest = "/usr/bin/gitway",                mode = "755" },
+  { source = "../README.md",          dest = "/usr/share/doc/gitway/README.md", mode = "644", doc = true },
+  { source = "../LICENSE",            dest = "/usr/share/licenses/gitway/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
 
 [lints]
 workspace = true
 
 [dependencies]
-gitssh-lib = { path = "../gitssh-lib" }
+gitway-lib = { path = "../gitway-lib" }
 
 russh.workspace      = true
 tokio.workspace      = true
@@ -30,3 +53,4 @@ env_logger.workspace = true
 rpassword.workspace  = true
 mimalloc.workspace   = true
 zeroize.workspace    = true
+serde_json.workspace = true

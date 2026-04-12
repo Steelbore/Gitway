@@ -1,13 +1,13 @@
 # Notices and Acknowledgments
 
-Gitssh (Copyright © 2026 Mohamed Hammad) is free software licensed under the
+Gitway (Copyright © 2026 Mohamed Hammad) is free software licensed under the
 GNU General Public License, version 3 or later.  See [LICENSE](LICENSE).
 
 ---
 
 ## russh
 
-Gitssh is built on top of **russh**, a pure-Rust SSH client and server library.
+Gitway is built on top of **russh**, a pure-Rust SSH client and server library.
 
 ```
 Copyright 2016 Pierre-Étienne Meunier
@@ -19,7 +19,7 @@ russh was originally written by **Pierre-Étienne Meunier** as part of the
 maintained at <https://github.com/warp-tech/russh> by Warp Technologies and
 the open-source community.
 
-### What Gitssh uses from russh
+### What Gitway uses from russh
 
 | Component | Purpose |
 |---|---|
@@ -27,7 +27,7 @@ the open-source community.
 | `russh-cryptovec` | Mlock-backed, zeroize-on-drop buffer for key material |
 | `russh-keys` | OpenSSH key decoding and agent protocol |
 
-Gitssh uses russh 0.59 from crates.io with the `aws-lc-rs` cryptography backend,
+Gitway uses russh 0.59 from crates.io with the `aws-lc-rs` cryptography backend,
 which provides post-quantum cryptography (PQC) support without requiring CMake,
 bindgen, or Go for non-FIPS builds.
 

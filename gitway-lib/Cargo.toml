@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
-name          = "gitssh-lib"
-description   = "Core SSH transport library for Git operations against GitHub (and GHE)."
-keywords      = ["ssh", "git", "github", "transport"]
+name          = "gitway-lib"
+description   = "Core SSH transport library for Git hosting services (GitHub, GitLab, Codeberg, and self-hosted)."
+keywords      = ["ssh", "git", "gitlab", "codeberg", "transport"]
 categories    = ["network-programming", "authentication"]
 readme        = "README.md"
-documentation = "https://docs.rs/gitssh-lib"
+documentation = "https://docs.rs/gitway-lib"
 
 version.workspace      = true
 edition.workspace      = true

@@ -1,14 +1,25 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Release workflow — triggered by a version tag (e.g. v0.1.0).
+# Release workflow — triggered by a version tag (e.g. v0.2.0).
 #
-# Builds static release binaries for three targets:
-#   Linux   x86_64-unknown-linux-musl   (fully static via musl libc)
-#   macOS   aarch64-apple-darwin        (GitHub macos-latest is Apple Silicon)
-#   Windows x86_64-pc-windows-msvc
+# Builds release artifacts for multiple targets and formats:
 #
-# On success, creates a GitHub Release and uploads the binaries as assets.
-# The release is created as a draft so the author can edit the notes before
-# publishing.
+#   Binary archives  (build job)
+#     Linux   x86_64-unknown-linux-musl   (fully static via musl libc)  → .tar.gz
+#     macOS   aarch64-apple-darwin        (GitHub macos-latest = Apple Silicon) → .tar.gz
+#     Windows x86_64-pc-windows-msvc                                     → .zip
+#
+#   Debian package  (deb job)
+#     x86_64 .deb via cargo-deb
+#
+#   RPM package  (rpm job)
+#     x86_64 .rpm via cargo-generate-rpm
+#
+#   GitHub Release  (release job)
+#     Draft release with all artifacts; author edits notes before publishing.
+#
+#   crates.io publish  (publish job)
+#     Publishes gitway-lib then gitway after the release is created.
+#     Requires the CARGO_REGISTRY_TOKEN secret.
 
 name: Release
 
@@ -22,6 +33,7 @@ env:
   RUSTFLAGS: ""
 
 jobs:
+  # ── Binary archives ─────────────────────────────────────────────────────────
   build:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
@@ -32,20 +44,20 @@ jobs:
           # Linux — fully static musl binary.
           - target:  x86_64-unknown-linux-musl
             runner:  ubuntu-latest
-            binary:  gitssh
-            archive: gitssh-${{ github.ref_name }}-linux-x86_64.tar.gz
+            binary:  gitway
+            archive: gitway-${{ github.ref_name }}-linux-x86_64.tar.gz
 
           # macOS — Apple Silicon (arm64).
           - target:  aarch64-apple-darwin
             runner:  macos-latest
-            binary:  gitssh
-            archive: gitssh-${{ github.ref_name }}-macos-arm64.tar.gz
+            binary:  gitway
+            archive: gitway-${{ github.ref_name }}-macos-arm64.tar.gz
 
           # Windows — MSVC toolchain.
           - target:  x86_64-pc-windows-msvc
             runner:  windows-latest
-            binary:  gitssh.exe
-            archive: gitssh-${{ github.ref_name }}-windows-x86_64.zip
+            binary:  gitway.exe
+            archive: gitway-${{ github.ref_name }}-windows-x86_64.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +74,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y musl-tools
 
-      # ring requires nasm on Windows.
+      # aws-lc-rs requires nasm on Windows for assembly code generation.
       - name: Install nasm (Windows only)
         if: runner.os == 'Windows'
         uses: ilammy/setup-nasm@v1
@@ -77,7 +89,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-release-
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p gitssh
+        run: cargo build --release --target ${{ matrix.target }} -p gitway
 
       # ── Package ─────────────────────────────────────────────────────────────
 
@@ -101,13 +113,96 @@ jobs:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
 
+  # ── Debian package (.deb) ───────────────────────────────────────────────────
+  deb:
+    name: build .deb
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ubuntu-cargo-deb-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ubuntu-cargo-deb-
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build release binary (required by cargo-deb)
+        run: cargo build --release -p gitway
+
+      - name: Build .deb package
+        run: cargo deb -p gitway --no-build
+
+      - name: Locate .deb
+        id: deb
+        run: echo "path=$(ls target/debian/*.deb)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitway-${{ github.ref_name }}-linux-x86_64.deb
+          path: ${{ steps.deb.outputs.path }}
+
+  # ── RPM package (.rpm) ──────────────────────────────────────────────────────
+  rpm:
+    name: build .rpm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnot/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ubuntu-cargo-rpm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ubuntu-cargo-rpm-
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Build release binary (required by cargo-generate-rpm)
+        run: cargo build --release -p gitway
+
+      - name: Build .rpm package
+        run: cargo generate-rpm -p gitway-cli
+
+      - name: Locate .rpm
+        id: rpm
+        run: echo "path=$(ls target/generate-rpm/*.rpm)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload .rpm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitway-${{ github.ref_name }}-linux-x86_64.rpm
+          path: ${{ steps.rpm.outputs.path }}
+
   # ── Create GitHub Release ───────────────────────────────────────────────────
   release:
     name: create release
-    needs: build
+    needs: [build, deb, rpm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      # Expose the release URL so the publish job can link to it.
+      release_url: ${{ steps.create.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -118,8 +213,49 @@ jobs:
           merge-multiple: true
 
       - name: Create draft release
+        id: create
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           generate_release_notes: true
           files: artifacts/*
+
+  # ── Publish to crates.io ────────────────────────────────────────────────────
+  # Runs after the GitHub Release is created so the release exists as a
+  # reference point.  Requires the CARGO_REGISTRY_TOKEN repository secret.
+  publish:
+    name: publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ubuntu-cargo-publish-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ubuntu-cargo-publish-
+
+      # Publish the library first — the CLI depends on it.
+      - name: Publish gitway-lib
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p gitway-lib
+
+      # crates.io needs a moment after the library publish before the CLI
+      # can resolve it as a dependency (index propagation delay).
+      - name: Wait for index propagation
+        run: sleep 30
+
+      - name: Publish gitway
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p gitway

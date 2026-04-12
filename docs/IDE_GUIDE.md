@@ -1,41 +1,41 @@
-# Gitssh — IDE Integration Guide
+# Gitway — IDE Integration Guide
 
-This guide explains how to configure Gitssh as the SSH transport in common
+This guide explains how to configure Gitway as the SSH transport in common
 development environments. The principle is the same everywhere: set
 `GIT_SSH_COMMAND` (per session) or `core.sshCommand` (permanently in Git
-config) to `gitssh`.
+config) to `gitway`.
 
 ---
 
 ## 1. Installation prerequisite
 
-Build and install Gitssh before configuring any IDE.
+Build and install Gitway before configuring any IDE.
 
 **Nushell:**
 ```nu
-cargo install --path gitssh-cli   # from source
+cargo install --path gitway-cli   # from source
 # — or, once published —
-cargo install gitssh
+cargo install gitway
 ```
 
 **Ion:**
 ```ion
-cargo install --path gitssh-cli   # from source
+cargo install --path gitway-cli   # from source
 # — or, once published —
-cargo install gitssh
+cargo install gitway
 ```
 
 **Bash/Brush:**
 ```bash
-cargo install --path gitssh-cli   # from source
+cargo install --path gitway-cli   # from source
 # — or, once published —
-cargo install gitssh
+cargo install gitway
 ```
 
 Verify it is on your PATH (all shells):
 
 ```sh
-gitssh --test
+gitway --test
 # Hi <username>! You've successfully authenticated, but GitHub does not
 # provide shell access.
 ```
@@ -44,8 +44,8 @@ Register it as the global Git SSH command so it works everywhere
 automatically (all shells):
 
 ```sh
-gitssh --install
-# Runs: git config --global core.sshCommand gitssh
+gitway --install
+# Runs: git config --global core.sshCommand gitway
 ```
 
 After `--install`, no IDE-specific configuration is needed in most cases.
@@ -57,7 +57,7 @@ additional steps.
 ## 2. Visual Studio Code
 
 VS Code uses the system Git binary, which inherits `core.sshCommand` from
-the global Git config set by `gitssh --install`. No additional steps are
+the global Git config set by `gitway --install`. No additional steps are
 required after installation.
 
 ### Optional: per-workspace override
@@ -68,13 +68,13 @@ Add to `.vscode/settings.json`:
 {
   "git.path": "/usr/bin/git",
   "terminal.integrated.env.linux": {
-    "GIT_SSH_COMMAND": "gitssh"
+    "GIT_SSH_COMMAND": "gitway"
   },
   "terminal.integrated.env.osx": {
-    "GIT_SSH_COMMAND": "gitssh"
+    "GIT_SSH_COMMAND": "gitway"
   },
   "terminal.integrated.env.windows": {
-    "GIT_SSH_COMMAND": "gitssh"
+    "GIT_SSH_COMMAND": "gitway"
   }
 }
 ```
@@ -84,12 +84,12 @@ Add to `.vscode/settings.json`:
 Open the integrated terminal (**Terminal → New Terminal**) and run:
 
 ```sh
-GIT_SSH_COMMAND=gitssh git ls-remote git@github.com:your-org/your-repo.git
+GIT_SSH_COMMAND=gitway git ls-remote git@github.com:your-org/your-repo.git
 ```
 
 ### Remote Development (SSH extension)
 
-VS Code Remote SSH connects using OpenSSH, not Gitssh. Gitssh only applies
+VS Code Remote SSH connects using OpenSSH, not Gitway. Gitway only applies
 to **Git operations** (clone, fetch, push), not to the remote connection
 itself.
 
@@ -101,7 +101,7 @@ Cursor is a VS Code fork and uses the same Git integration. Follow the
 **Visual Studio Code** steps above exactly — all settings paths are
 identical.
 
-After `gitssh --install`, Cursor picks up `core.sshCommand = gitssh` from
+After `gitway --install`, Cursor picks up `core.sshCommand = gitway` from
 the global Git config automatically.
 
 ---
@@ -113,7 +113,7 @@ shell that launched it.
 
 ### Global configuration (recommended)
 
-Run `gitssh --install` once. Zed will use Gitssh for all Git operations
+Run `gitway --install` once. Zed will use Gitway for all Git operations
 automatically.
 
 ### Per-project configuration
@@ -124,7 +124,7 @@ In your project's `.zed/settings.json`:
 {
   "terminal": {
     "env": {
-      "GIT_SSH_COMMAND": "gitssh"
+      "GIT_SSH_COMMAND": "gitway"
     }
   }
 }
@@ -138,7 +138,7 @@ Open the terminal panel (**View → Terminal**) and run:
 git fetch
 ```
 
-If Gitssh is active, the Git output pane will show normal operation without
+If Gitway is active, the Git output pane will show normal operation without
 an OpenSSH banner.
 
 ---
@@ -150,13 +150,13 @@ other JetBrains products.
 
 ### Method A — Global Git config (recommended)
 
-Run `gitssh --install` once. JetBrains reads `core.sshCommand` from the
+Run `gitway --install` once. JetBrains reads `core.sshCommand` from the
 global Git config automatically for command-line Git operations.
 
 ### Method B — JetBrains SSH executable setting
 
 JetBrains IDEs have their own SSH client for operations triggered from the
-UI (VCS → Update Project, Push, etc.).  To route those through Gitssh:
+UI (VCS → Update Project, Push, etc.).  To route those through Gitway:
 
 1. Open **Settings / Preferences** (`Ctrl+Alt+S` / `⌘,`).
 2. Navigate to **Version Control → Git**.
@@ -164,14 +164,14 @@ UI (VCS → Update Project, Push, etc.).  To route those through Gitssh:
 4. Confirm **Path to Git** points to your system `git` binary.
 
 With **Native** SSH selected, JetBrains invokes `git` which in turn reads
-`core.sshCommand = gitssh` from the global config.
+`core.sshCommand = gitway` from the global config.
 
 ### Method C — Environment variable in the run configuration
 
 For projects where the IDE manages its own environment:
 
 1. Open **Settings → Tools → Terminal**.
-2. Add to **Environment variables**: `GIT_SSH_COMMAND=gitssh`.
+2. Add to **Environment variables**: `GIT_SSH_COMMAND=gitway`.
 
 Or add the variable to your shell profile so all processes launched by JetBrains inherit it:
 
@@ -201,16 +201,16 @@ Open the IDX terminal and run:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
 
-# Build and install gitssh
-cargo install gitssh   # once published on crates.io
+# Build and install gitway
+cargo install gitway   # once published on crates.io
 # — or from source —
-git clone https://github.com/steelbore/gitssh && cargo install --path gitssh/gitssh-cli
+git clone https://github.com/steelbore/gitssh && cargo install --path gitssh/gitway-cli
 ```
 
 Then register it:
 
 ```sh
-gitssh --install
+gitway --install
 ```
 
 ### Persist across VM restarts
@@ -224,13 +224,13 @@ Add to your `.idx/dev.nix` (IDX's environment configuration):
   ];
 
   idx.workspace.onCreate = {
-    install-gitssh = "cargo install gitssh";
-    configure-gitssh = "gitssh --install";
+    install-gitssh = "cargo install gitway";
+    configure-gitssh = "gitway --install";
   };
 }
 ```
 
-This reinstalls and configures Gitssh every time the IDX VM is
+This reinstalls and configures Gitway every time the IDX VM is
 provisioned or rebuilt.
 
 ### VS Code settings inside IDX
@@ -247,36 +247,36 @@ Codespaces are Linux containers with Rust and Git pre-installed.
 **Nushell:**
 ```nu
 # In the Codespaces terminal:
-cargo install gitssh
-gitssh --install
+cargo install gitway
+gitway --install
 ```
 
 **Ion:**
 ```ion
 # In the Codespaces terminal:
-cargo install gitssh
-gitssh --install
+cargo install gitway
+gitway --install
 ```
 
 **Bash/Brush:**
 ```bash
 # In the Codespaces terminal:
-cargo install gitssh
-gitssh --install
+cargo install gitway
+gitway --install
 ```
 
 To persist across container rebuilds, add to `.devcontainer/devcontainer.json`:
 
 ```json
 {
-  "postCreateCommand": "cargo install gitssh && gitssh --install"
+  "postCreateCommand": "cargo install gitway && gitway --install"
 }
 ```
 
 Or use a `Dockerfile`:
 
 ```dockerfile
-RUN cargo install gitssh && gitssh --install
+RUN cargo install gitway && gitway --install
 ```
 
 ---
@@ -290,24 +290,24 @@ NixOS requires the `shell.nix` environment due to incompatible default RUSTFLAGS
 **Nushell:**
 ```nu
 cd /path/to/gitssh
-nix-shell --run 'cargo install --path gitssh-cli'
+nix-shell --run 'cargo install --path gitway-cli'
 ```
 
 **Ion:**
 ```ion
 cd /path/to/gitssh
-nix-shell --run 'cargo install --path gitssh-cli'
+nix-shell --run 'cargo install --path gitway-cli'
 ```
 
 **Bash/Brush:**
 ```bash
 cd /path/to/gitssh
-nix-shell --run 'cargo install --path gitssh-cli'
+nix-shell --run 'cargo install --path gitway-cli'
 ```
 
 ### IDE integration on NixOS
 
-Most IDEs launched from the desktop environment will not have access to the nix-shell environment. To make `gitssh` available system-wide after building:
+Most IDEs launched from the desktop environment will not have access to the nix-shell environment. To make `gitway` available system-wide after building:
 
 **Nushell:**
 ```nu
@@ -322,7 +322,7 @@ cp target/release/gitssh ~/.local/bin/
 $env.PATH = ($env.PATH | split row (char esep) | prepend ($env.HOME | path join .local bin))
 
 # 4. Register globally
-gitssh --install
+gitway --install
 ```
 
 **Ion:**
@@ -338,7 +338,7 @@ cp target/release/gitssh ~/.local/bin/
 export PATH="$HOME/.local/bin:$PATH"
 
 # 4. Register globally
-gitssh --install
+gitway --install
 ```
 
 **Bash/Brush:**
@@ -354,7 +354,7 @@ cp target/release/gitssh ~/.local/bin/
 export PATH="$HOME/.local/bin:$PATH"
 
 # 4. Register globally
-gitssh --install
+gitway --install
 ```
 
 ### Alternative: Use direnv
@@ -374,23 +374,23 @@ Now IDEs that support direnv (VS Code with the direnv extension, etc.) will auto
 
 ---
 
-## 9. Using Gitssh as a library in IDE plugins
+## 9. Using Gitway as a library in IDE plugins
 
 If you are building an IDE plugin or extension that embeds Rust and needs
-Git transport, add `gitssh-lib` as a dependency:
+Git transport, add `gitway-lib` as a dependency:
 
 ```toml
 [dependencies]
-gitssh-lib = "0.1"
+gitway-lib = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
 ```rust
-use gitssh_lib::{GitsshConfig, GitsshSession};
+use gitssh_lib::{GitwayConfig, GitwaySession};
 
-pub async fn fetch_pack(host: &str, repo: &str) -> Result<u32, gitssh_lib::GitsshError> {
-    let config = GitsshConfig::builder(host).build();
-    let mut session = GitsshSession::connect(&config).await?;
+pub async fn fetch_pack(host: &str, repo: &str) -> Result<u32, gitssh_lib::GitwayError> {
+    let config = GitwayConfig::builder(host).build();
+    let mut session = GitwaySession::connect(&config).await?;
     session.authenticate_best(&config).await?;
     let exit = session.exec(&format!("git-upload-pack '{repo}'")).await?;
     session.close().await?;
@@ -398,7 +398,7 @@ pub async fn fetch_pack(host: &str, repo: &str) -> Result<u32, gitssh_lib::Gitss
 }
 ```
 
-See [gitssh-lib on docs.rs](https://docs.rs/gitssh-lib) for the full API reference.
+See [gitway-lib on docs.rs](https://docs.rs/gitway-lib) for the full API reference.
 
 ---
 
@@ -406,7 +406,7 @@ See [gitssh-lib on docs.rs](https://docs.rs/gitssh-lib) for the full API referen
 
 ### `gitssh: command not found`
 
-Gitssh is not on your PATH. Ensure `~/.cargo/bin` is in `$PATH`:
+Gitway is not on your PATH. Ensure `~/.cargo/bin` is in `$PATH`:
 
 **Nushell:**
 ```nu
@@ -428,14 +428,14 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 ### Host key mismatch
 
-Gitssh pins GitHub's known fingerprints. A mismatch means either:
+Gitway pins GitHub's known fingerprints. A mismatch means either:
 - You are connecting to a non-GitHub SSH host (use `--custom-known-hosts`).
 - A proxy or firewall is intercepting the connection.
-- GitHub has rotated its keys (update Gitssh to the latest version).
+- GitHub has rotated its keys (update Gitway to the latest version).
 
 ### No SSH key found
 
-Gitssh looks for keys in `~/.ssh/id_ed25519`, `~/.ssh/id_ecdsa`,
+Gitway looks for keys in `~/.ssh/id_ed25519`, `~/.ssh/id_ecdsa`,
 `~/.ssh/id_rsa`, then asks the SSH agent. If none are found:
 
 ```sh
@@ -446,16 +446,16 @@ ssh-add -l
 ssh-add ~/.ssh/id_ed25519
 
 # Or pass the key explicitly
-git config --global core.sshCommand "gitssh --identity ~/.ssh/id_ed25519"
+git config --global core.sshCommand "gitway --identity ~/.ssh/id_ed25519"
 ```
 
 ### Passphrase prompt does not appear in IDE GUI
 
-When a GUI app launches Git (GitHub Desktop, JetBrains, Zed, etc.), gitssh
+When a GUI app launches Git (GitHub Desktop, JetBrains, Zed, etc.), gitway
 runs without a terminal. There are three solutions, in recommended order:
 
 **Option 1 — SSH agent (recommended):** Load your key once per session.
-Gitssh always tries the agent first before asking for a passphrase.
+Gitway always tries the agent first before asking for a passphrase.
 
 ```sh
 ssh-add ~/.ssh/id_ed25519

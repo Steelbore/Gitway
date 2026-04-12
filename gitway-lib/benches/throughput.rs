@@ -9,56 +9,56 @@
 //! # Running
 //!
 //! ```sh
-//! GITSSH_INTEGRATION_TESTS=1 cargo bench --bench throughput
+//! GITWAY_INTEGRATION_TESTS=1 cargo bench --bench throughput
 //! ```
 //!
 //! Requires a GitHub SSH key discoverable by the standard search order (or
-//! `SSH_AUTH_SOCK`).  Without `GITSSH_INTEGRATION_TESTS=1` the benchmark
+//! `SSH_AUTH_SOCK`).  Without `GITWAY_INTEGRATION_TESTS=1` the benchmark
 //! body is a no-op so it can appear in CI without credentials.
 //!
 //! # Interpreting results
 //!
 //! Criterion prints median wall-clock time in nanoseconds.  Compare the
-//! `gitssh_exec` and `openssh_exec` groups; the ratio should be ≤ 1.05
+//! `gitway_exec` and `openssh_exec` groups; the ratio should be ≤ 1.05
 //! (within 5 % of OpenSSH, S1).
 
 use std::process::Command;
 use std::time::Instant;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use gitssh_lib::{GitsshConfig, GitsshSession};
+use gitway_lib::{GitwayConfig, GitwaySession};
 
 /// Returns `true` when the integration environment variable is set.
 fn integration_enabled() -> bool {
-    std::env::var("GITSSH_INTEGRATION_TESTS").is_ok_and(|v| v == "1")
+    std::env::var("GITWAY_INTEGRATION_TESTS").is_ok_and(|v| v == "1")
 }
 
 /// Benchmark: full connect → `authenticate_best` → exec → close.
 ///
 /// Exercises the complete cold-start path so we measure the same work that
 /// `ssh -T git@github.com` would perform.
-fn bench_gitssh_exec(c: &mut Criterion) {
+fn bench_gitway_exec(c: &mut Criterion) {
     if !integration_enabled() {
         return;
     }
 
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
 
-    c.bench_function("gitssh_exec", |b| {
+    c.bench_function("gitway_exec", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let config = GitsshConfig::github();
-                let mut session = GitsshSession::connect(&config)
+                let config = GitwayConfig::github();
+                let mut session = GitwaySession::connect(&config)
                     .await
-                    .expect("gitssh connect");
+                    .expect("gitway connect");
                 session
                     .authenticate_best(&config)
                     .await
-                    .expect("gitssh auth");
+                    .expect("gitway auth");
                 // `true` exits immediately with code 1; we only care about
                 // the round-trip timing, not the exit code.
                 let _ = session.exec("true").await;
-                session.close().await.expect("gitssh close");
+                session.close().await.expect("gitway close");
             });
         });
     });
@@ -93,5 +93,5 @@ fn bench_openssh_exec(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_gitssh_exec, bench_openssh_exec);
+criterion_group!(benches, bench_gitway_exec, bench_openssh_exec);
 criterion_main!(benches);
