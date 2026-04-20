@@ -63,6 +63,15 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      # Defensive: some `dtolnay/rust-toolchain` behaviour has inconsistently
+      # installed the `components:` inputs, leading to
+      # `cargo-clippy is not installed for the toolchain '...'` at run time.
+      # Explicitly add the components we need so the next step is guaranteed
+      # to find them.
+      - name: Ensure clippy + rustfmt are installed
+        shell: bash
+        run: rustup component add clippy rustfmt
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:

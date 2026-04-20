@@ -13,8 +13,14 @@
 rustflags = ["-C", "target-cpu=native"]
 
 # ── C compiler flags ──────────────────────────────────────────────────────────
-# Override the system CFLAGS to strip -flto=auto.
-# NixOS sets -flto=auto globally; ring's cc-rs build produces GCC LTO IR
-# objects that the linker cannot resolve (no LTO plugin in Cargo's link step).
-[env]
-CFLAGS = { value = "-march=native -O2 -pipe", force = true }
+# NixOS stdenv injects `-flto=auto` globally, which can produce GCC LTO IR
+# objects that the link step cannot resolve. Historically we forced CFLAGS
+# here via `[env]` with `force = true`, but that value (`-march=native -O2
+# -pipe`) is x86-GCC-only and silently breaks aarch64-apple-darwin (invalid
+# `-march=native`) and x86_64-pc-windows-msvc (cl.exe rejects GCC flags and
+# the aws-lc-sys MSVC path needs its own compile environment).
+#
+# The NixOS-specific workaround now lives in shell.nix (which sets CFLAGS on
+# the shell environment instead of on all cargo invocations), so non-Nix
+# builds — including GitHub Actions runners — use their native toolchain
+# defaults.  Do NOT add `[env] CFLAGS = ...` here again.

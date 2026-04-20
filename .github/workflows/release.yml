@@ -72,6 +72,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Defensive: some matrix.target values are not added automatically by
+      # the toolchain action when the host and target differ (notably
+      # x86_64-unknown-linux-musl on a gnu host). Call `rustup target add`
+      # explicitly so cargo has the standard library for the target.
+      - name: Ensure target is installed
+        shell: bash
+        run: rustup target add ${{ matrix.target }}
+
       # musl cross-compilation toolchain (Linux only).
       - name: Install musl tools (Linux only)
         if: runner.os == 'Linux'
