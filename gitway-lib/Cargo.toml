@@ -30,6 +30,12 @@ ssh-key.workspace   = true
 sha2.workspace      = true
 rand_core.workspace = true
 
+# SSH agent wire-protocol client (phase 2: `gitway agent`, `gitway-add`).
+# Only the blocking API is pulled in; Unix-only for now (Windows named-pipe
+# support is Phase 3 scope).
+[target.'cfg(unix)'.dependencies]
+ssh-agent-lib.workspace = true
+
 [dev-dependencies]
 tokio     = { workspace = true }
 tempfile  = { workspace = true }

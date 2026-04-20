@@ -51,6 +51,13 @@ pub enum GitwaySubcommand {
     ///
     /// Ergonomic alias for `gitway keygen sign` with a flat flag layout.
     Sign(SignArgs),
+    /// Load, list, remove, or lock keys in a running SSH agent.
+    ///
+    /// `gitway agent` is the Gitway-native equivalent of `ssh-add`; it
+    /// talks to any agent listening on `$SSH_AUTH_SOCK` (Gitway's own
+    /// future daemon or OpenSSH's `ssh-agent`). Unix-only.
+    #[cfg(unix)]
+    Agent(AgentArgs),
 }
 
 // ── Keygen arguments ──────────────────────────────────────────────────────────
@@ -223,6 +230,88 @@ pub struct VerifyArgs {
     /// Input file; `-` or omitted reads stdin.
     #[arg(short = 'i', long = "input", value_name = "FILE")]
     pub input: Option<PathBuf>,
+}
+
+// ── Agent arguments (Phase 2) ─────────────────────────────────────────────────
+
+/// Top-level flags + nested subcommand for `gitway agent`.
+#[cfg(unix)]
+#[derive(Debug, Args)]
+pub struct AgentArgs {
+    #[command(subcommand)]
+    pub command: AgentSubcommand,
+}
+
+/// Subcommands under `gitway agent`.
+#[cfg(unix)]
+#[derive(Debug, Subcommand)]
+pub enum AgentSubcommand {
+    /// Load one or more private keys into the agent (ssh-add equivalent).
+    Add(AgentAddArgs),
+    /// List identities currently loaded into the agent.
+    List(AgentListArgs),
+    /// Remove a single identity, or all with `--all`.
+    Remove(AgentRemoveArgs),
+    /// Lock the agent — it refuses signing until unlocked with the same passphrase.
+    Lock(AgentLockArgs),
+    /// Unlock a previously-locked agent.
+    Unlock(AgentLockArgs),
+}
+
+/// Arguments for `gitway agent add`.
+#[cfg(unix)]
+#[derive(Debug, Args)]
+pub struct AgentAddArgs {
+    /// Paths to private keys to load. Defaults to `~/.ssh/id_ed25519`
+    /// (then `~/.ssh/id_ecdsa`, `~/.ssh/id_rsa`) when omitted.
+    #[arg(value_name = "FILE")]
+    pub files: Vec<PathBuf>,
+
+    /// Evict the loaded key from the agent after this many seconds
+    /// (matches `ssh-add -t`).
+    #[arg(short = 't', long = "lifetime", value_name = "SECONDS")]
+    pub lifetime: Option<u64>,
+
+    /// Ask the agent to confirm each signing request interactively
+    /// (matches `ssh-add -c`). Support is agent-dependent.
+    #[arg(short = 'c', long = "confirm", action = ArgAction::SetTrue)]
+    pub confirm: bool,
+}
+
+/// Arguments for `gitway agent list`.
+#[cfg(unix)]
+#[derive(Debug, Args)]
+pub struct AgentListArgs {
+    /// Print full public keys (matches `ssh-add -L`) instead of the
+    /// default short fingerprint listing (`ssh-add -l`).
+    #[arg(short = 'L', long = "full", action = ArgAction::SetTrue)]
+    pub full: bool,
+
+    /// Fingerprint hash to display.
+    #[arg(short = 'E', long = "hash", value_enum, default_value_t = HashKind::Sha256)]
+    pub hash: HashKind,
+}
+
+/// Arguments for `gitway agent remove`.
+#[cfg(unix)]
+#[derive(Debug, Args)]
+pub struct AgentRemoveArgs {
+    /// Path to a public or private key file to remove by fingerprint.
+    #[arg(value_name = "FILE")]
+    pub file: Option<PathBuf>,
+
+    /// Remove every identity currently loaded (matches `ssh-add -D`).
+    #[arg(long = "all", action = ArgAction::SetTrue, conflicts_with = "file")]
+    pub all: bool,
+}
+
+/// Arguments for `gitway agent lock` / `unlock`.
+#[cfg(unix)]
+#[derive(Debug, Args)]
+pub struct AgentLockArgs {
+    /// Passphrase (prompted interactively if omitted).
+    #[arg(short = 'p', long = "passphrase", value_name = "PASSPHRASE")]
+    pub passphrase: Option<String>,
 }
 
 // ── Main CLI struct ───────────────────────────────────────────────────────────

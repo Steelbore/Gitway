@@ -26,6 +26,14 @@ path = "src/main.rs"
 name = "gitway-keygen"
 path = "src/bin/gitway-keygen.rs"
 
+# Shim for `ssh-add` — argv-compatible for IDE / credential-manager
+# integrations that shell out to `ssh-add` by name. Unix-only (Phase 2
+# agent client is over a Unix domain socket; Windows pipe support is
+# Phase 3). See `src/bin/gitway-add.rs`.
+[[bin]]
+name = "gitway-add"
+path = "src/bin/gitway-add.rs"
+
 # ── Debian packaging (cargo-deb) ──────────────────────────────────────────────
 [package.metadata.deb]
 section  = "vcs"
@@ -35,6 +43,9 @@ assets   = [
   ["target/release/gitway", "usr/bin/", "755"],
   # Install the ssh-keygen-compat shim for `gpg.ssh.program=gitway-keygen`.
   ["target/release/gitway-keygen", "usr/bin/", "755"],
+  # Install the ssh-add-compat shim (Unix-only — Windows is skipped via
+  # the release workflow's matrix).
+  ["target/release/gitway-add", "usr/bin/", "755"],
   # Install documentation.
   ["../README.md", "usr/share/doc/gitway/README.md", "644"],
   ["../LICENSE",   "usr/share/licenses/gitway/LICENSE", "644"],
@@ -45,6 +56,7 @@ assets   = [
 assets = [
   { source = "target/release/gitway",        dest = "/usr/bin/gitway",        mode = "755" },
   { source = "target/release/gitway-keygen", dest = "/usr/bin/gitway-keygen", mode = "755" },
+  { source = "target/release/gitway-add",    dest = "/usr/bin/gitway-add",    mode = "755" },
   { source = "../README.md",                 dest = "/usr/share/doc/gitway/README.md", mode = "644", doc = true },
   { source = "../LICENSE",                   dest = "/usr/share/licenses/gitway/LICENSE", mode = "644", doc = true },
 ]
@@ -67,6 +79,7 @@ mimalloc.workspace   = true
 zeroize.workspace    = true
 serde_json.workspace = true
 ssh-key.workspace    = true
+dirs.workspace       = true
 
 [dev-dependencies]
 tempfile = { workspace = true }

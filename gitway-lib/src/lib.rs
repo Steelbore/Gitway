@@ -40,6 +40,8 @@
 //! - **Post-quantum ready** — uses `aws-lc-rs` for cryptography.
 //! - **Metric / SI / ISO 8601** throughout all timestamps and measurements.
 
+#[cfg(unix)]
+pub mod agent;
 pub mod allowed_signers;
 pub mod auth;
 pub mod config;

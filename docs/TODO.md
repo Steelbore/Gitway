@@ -139,34 +139,35 @@ Client-side agent operations so `gitway agent add/list/remove` replaces `ssh-add
 
 ### Dependencies
 
-- [ ] Add `ssh-agent-lib = "0.5.2"` with `client` feature only.
+- [✓] Add `ssh-agent-lib = "0.5.2"` (blocking API; `default-features = false` drops tokio/futures). Unix-only dep via `[target.'cfg(unix)'.dependencies]`.
 
 ### `gitway-lib` — agent client
 
-- [ ] `gitway-lib/src/agent/mod.rs` + `gitway-lib/src/agent/client.rs` — wrapper over `ssh_agent_lib::client::Client`. Public fns: `connect(socket: Option<PathBuf>)`, `add_identity`, `list_identities`, `remove_identity`, `remove_all`, `lock`, `unlock`.
-- [ ] Respect `$SSH_AUTH_SOCK` by default.
-- [ ] Keep existing `connect_agent()` in `gitway-lib/src/auth.rs` (russh-agent-based) for transport; do not mix the two client types across the boundary.
+- [✓] `gitway-lib/src/agent/mod.rs` + `gitway-lib/src/agent/client.rs` — wrapper over `ssh_agent_lib::blocking::Client`. `Agent::from_env` / `Agent::connect(&Path)`, `add`, `list`, `remove`, `remove_all`, `lock`, `unlock`, plus an `Identity { public_key, comment, fingerprint }` wrapper that hides the ssh-agent-lib `proto::Identity` shape.
+- [✓] Honors `$SSH_AUTH_SOCK` via `Agent::from_env`.
+- [✓] Keeps existing `connect_agent()` in `gitway-lib/src/auth.rs` (russh-agent-based) for transport auth — the two client types never cross the boundary.
 
 ### `gitway` CLI
 
-- [ ] Extend `GitwaySubcommand` with `Agent(AgentArgs)` + nested `AgentSubcommand::{Add, List, Remove, Lock, Unlock}`.
-- [ ] `gitway-cli/src/agent.rs` dispatcher with `--json` support and lifetime (`-t <seconds>`) forwarding.
+- [✓] Extend `GitwaySubcommand` with `Agent(AgentArgs)` + nested `AgentSubcommand::{Add, List, Remove, Lock, Unlock}`.
+- [✓] `gitway-cli/src/agent.rs` dispatcher with `--json` support, lifetime (`-t`), `--confirm`, and `remove --all`.
 
 ### `gitway-add` shim binary (ssh-add-compat)
 
-- [ ] Add `[[bin]] name = "gitway-add"` to `gitway-cli/Cargo.toml`.
-- [ ] Hand-rolled argv parser accepting `ssh-add` surface: `-l -L -d -D -x -X -t <sec> -E <hash> [files…]`.
+- [✓] Add `[[bin]] name = "gitway-add"` to `gitway-cli/Cargo.toml`. `#![cfg(unix)]`-gated.
+- [✓] Hand-rolled argv parser accepting the `ssh-add` surface: `-l -L -d -D -x -X -t <sec> -E <hash> -c [files…]`. Silently ignores `-q -v -vv -vvv -H -T -s -S -e -k` for compatibility.
+- [✓] Non-TTY stdin passphrase read (for CI pipelines feeding a passphrase on stdin).
 
 ### Tests
 
-- [ ] `tests/agent_client.rs` (gated) — spawn OpenSSH's `ssh-agent -D -a <tmp>`, run `gitway agent add <key>` against it, assert `list` / `remove`.
-- [ ] Skip gracefully when `ssh-agent` is not on PATH.
+- [✓] `gitway-cli/tests/agent_client.rs` (gated, `#[ignore]`) — spawns OpenSSH's `ssh-agent -D -a <tmp>`, drives `gitway-add <key>` → `-l` → `-d <pub>` → `-l` (empty) → `-D`. Validated on 2026-04-21 against OpenSSH on NixOS.
 
 ### Documentation & release
 
-- [ ] README: "Loading keys into any agent" section.
-- [ ] Update release workflow, packaging metadata, AUR PKGBUILD for the `gitway-add` asset.
-- [ ] Cut v0.5.0 tag.
+- [✓] README: new "Loading keys into any SSH agent (no OpenSSH required)" section documenting both `gitway agent` verbs and the `gitway-add` shim.
+- [✓] Release workflow matrix adds a `binary3` slot for `gitway-add`; Linux/macOS archives bundle all three binaries, Windows archive keeps just the two Unix-independent ones with a note that agent support lands in Phase 3.
+- [✓] Debian, RPM, and both AUR PKGBUILDs install `/usr/bin/gitway-add`.
+- [ ] Cut v0.5.0 tag after CI goes green on the Phase 2 commit.
 
 ## Milestone 13: SSH agent daemon — Phase 3 of §5.7 (v0.6)
 

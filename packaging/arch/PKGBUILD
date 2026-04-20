@@ -28,6 +28,7 @@ package() {
 
   install -Dm755 gitway          "${pkgdir}/usr/bin/gitway"
   install -Dm755 gitway-keygen   "${pkgdir}/usr/bin/gitway-keygen"
+  install -Dm755 gitway-add      "${pkgdir}/usr/bin/gitway-add"
   install -Dm644 README.md       "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   install -Dm644 LICENSE         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

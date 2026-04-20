@@ -262,6 +262,55 @@ OpenSSH key format and the SSHSIG file-signature blob.
 
 ---
 
+## Loading keys into any SSH agent (no OpenSSH required)
+
+Gitway 0.5 adds a client for the SSH agent wire protocol. It talks to
+any agent listening on `$SSH_AUTH_SOCK` — OpenSSH's `ssh-agent`,
+Gitway's own future daemon (v0.6), or anything else that speaks the
+protocol. Unix-only for now; Windows named-pipe support lands with the
+daemon in v0.6.
+
+### `gitway agent` — native UX
+
+```sh
+# Load your default key (matches `ssh-add`):
+gitway agent add
+
+# Load a specific key with a 10-minute lifetime:
+gitway agent add --lifetime 600 ~/.ssh/id_ed25519
+
+# List what's currently loaded:
+gitway agent list            # short fingerprints
+gitway agent list -L         # full public-key lines
+
+# Remove one or all identities:
+gitway agent remove ~/.ssh/id_ed25519.pub
+gitway agent remove --all
+
+# Lock / unlock the agent with a passphrase:
+gitway agent lock
+gitway agent unlock
+```
+
+All subcommands honor `--json` / `--format json` and the agent-env
+detection rules documented under *Avoiding repeated passphrase prompts*.
+
+### `gitway-add` — ssh-add drop-in
+
+Tools that shell out to `ssh-add` by name (IDEs, git-credential-manager,
+systemd user units) can invoke `gitway-add` unchanged. It accepts the
+flags most-commonly used: `-l`, `-L`, `-d <file>`, `-D`, `-x`, `-X`,
+`-t <seconds>`, `-E <hash>`, `-c`, plus bare positional paths for
+`add`.
+
+```sh
+eval $(ssh-agent -s)       # or Gitway's own daemon once v0.6 lands
+gitway-add ~/.ssh/id_ed25519
+gitway-add -l
+```
+
+---
+
 ## Library usage
 
 Add to `Cargo.toml`:

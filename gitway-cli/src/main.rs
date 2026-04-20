@@ -14,6 +14,8 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+#[cfg(unix)]
+mod agent;
 mod cli;
 mod keygen;
 mod sign;
@@ -219,6 +221,8 @@ async fn run(cli: Cli) -> Result<u32, GitwayError> {
             GitwaySubcommand::Describe => Ok(run_describe()),
             GitwaySubcommand::Keygen(args) => keygen::run(args.command, mode),
             GitwaySubcommand::Sign(args) => sign::run(&args, mode),
+            #[cfg(unix)]
+            GitwaySubcommand::Agent(args) => agent::run(args.command, mode),
         };
     }
 
@@ -424,6 +428,11 @@ fn run_install(mode: OutputMode) -> Result<u32, GitwayError> {
 // ── schema subcommand ─────────────────────────────────────────────────────────
 
 /// Emits a JSON Schema (Draft 2020-12) describing all Gitway commands (SFRS Rule 4).
+#[expect(
+    clippy::too_many_lines,
+    reason = "the schema is one large literal — splitting it across helper \
+              functions would hurt readability without any structural benefit."
+)]
 fn run_schema() -> u32 {
     let schema = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -488,6 +497,13 @@ fn run_schema() -> u32 {
                 "description": "Produce an SSHSIG (OpenSSH file signature) on stdout",
                 "supports_json": true,
                 "idempotent": true,
+            },
+            {
+                "name": "gitway agent <sub>",
+                "description": "Client operations against any SSH agent on $SSH_AUTH_SOCK (Unix-only)",
+                "supports_json": true,
+                "idempotent": false,
+                "subcommands": ["add", "list", "remove", "lock", "unlock"]
             }
         ],
         "binaries": [
@@ -496,6 +512,12 @@ fn run_schema() -> u32 {
                 "description": "Drop-in shim for `ssh-keygen -Y sign / verify` (byte-compatible stdout)",
                 "supports_json": false,
                 "use_with": "git -c gpg.format=ssh -c gpg.ssh.program=gitway-keygen"
+            },
+            {
+                "name": "gitway-add",
+                "description": "Drop-in shim for `ssh-add` (Unix-only)",
+                "supports_json": false,
+                "use_with": "tools that invoke `ssh-add` by name (IDEs, credential managers)"
             }
         ],
         "global_flags": {
@@ -570,10 +592,17 @@ fn run_describe() -> u32 {
                 "description": "Produce an SSHSIG file signature",
                 "supports_json": true,
                 "idempotent": true,
+            },
+            {
+                "name": "gitway agent",
+                "description": "Client operations against any SSH agent (Unix-only in v0.5)",
+                "supports_json": true,
+                "idempotent": false,
             }
         ],
         "companion_binaries": [
-            "gitway-keygen"
+            "gitway-keygen",
+            "gitway-add"
         ],
         "global_flags": ["--json", "--format", "--verbose", "--no-color",
                          "--insecure-skip-host-check", "--identity", "--cert", "--port"],
