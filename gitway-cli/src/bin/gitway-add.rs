@@ -2,9 +2,6 @@
 // Rust guideline compliant 2026-04-21
 // S3: enforce zero unsafe in all project-owned code at compile time.
 #![forbid(unsafe_code)]
-// Unix-only: the agent protocol in Phase 2 only speaks over Unix domain
-// sockets. Windows named-pipe support is Phase 3 scope.
-#![cfg(unix)]
 //! `gitway-add` — drop-in replacement for the subset of `ssh-add` that
 //! shells out by name (IDE integrations, git-credential-manager,
 //! systemd user units, etc.).
@@ -25,6 +22,36 @@
 //! | `<file>...` | Add these private keys (default: `~/.ssh/id_ed25519`) |
 //!
 //! Unsupported ssh-add flags are silently ignored for compatibility.
+//!
+//! ## Platform support
+//!
+//! Unix-only. The agent protocol in Phase 2 only speaks over Unix domain
+//! sockets; Windows named-pipe support lands in Phase 3 (v0.6) alongside
+//! the agent daemon. On Windows, the binary still builds but exits with
+//! code 2 and a pointer to the upcoming release.
+
+// Cross-platform stub: on Windows the binary links cleanly but explains
+// the limitation and exits non-zero, so packaging can still produce it
+// as an artifact if desired.
+#[cfg(not(unix))]
+fn main() -> std::process::ExitCode {
+    eprintln!(
+        "gitway-add: not supported on this platform. \
+         Unix-only in v0.5; Windows support lands in v0.6 \
+         with the agent daemon (named-pipe transport)."
+    );
+    std::process::ExitCode::from(2)
+}
+
+#[cfg(unix)]
+fn main() -> std::process::ExitCode {
+    unix::main()
+}
+
+// Everything that actually does work lives under this `mod unix` gate so
+// the imports and types don't fail to resolve on non-Unix targets.
+#[cfg(unix)]
+mod unix {
 
 use std::fs;
 use std::io::Read as _;
@@ -41,7 +68,7 @@ use gitway_lib::GitwayError;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-fn main() -> ExitCode {
+pub fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
         Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
@@ -354,3 +381,5 @@ fn default_key_paths() -> Result<Vec<PathBuf>, GitwayError> {
     }
     Ok(found)
 }
+
+} // mod unix
