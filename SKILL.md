@@ -1,7 +1,7 @@
 ---
 name: gitway
 description: SSH transport client for Git hosting services (GitHub, GitLab, Codeberg)
-version: "0.4.0"
+version: "0.5.0"
 commands:
   - name: gitway --test
     description: Verify SSH connectivity and authentication to a Git host

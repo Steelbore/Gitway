@@ -7,7 +7,7 @@
 # To build from source instead, use the companion PKGBUILD-git.
 
 pkgname=gitway-bin
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="Purpose-built SSH transport client for Git hosting services (GitHub, GitLab, Codeberg)"
 arch=('x86_64')

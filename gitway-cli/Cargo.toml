@@ -67,7 +67,7 @@ assets = [
 workspace = true
 
 [dependencies]
-gitway-lib = { version = "0.4.0", path = "../gitway-lib" }
+gitway-lib = { version = "0.5.0", path = "../gitway-lib" }
 
 russh.workspace      = true
 tokio.workspace      = true

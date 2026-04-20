@@ -317,7 +317,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-gitway-lib = "0.4.0"
+gitway-lib = "0.5.0"
 ```
 
 ### Connect and run a Git command
