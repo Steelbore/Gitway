@@ -40,12 +40,15 @@
 //! - **Post-quantum ready** — uses `aws-lc-rs` for cryptography.
 //! - **Metric / SI / ISO 8601** throughout all timestamps and measurements.
 
+pub mod allowed_signers;
 pub mod auth;
 pub mod config;
 pub mod error;
 pub mod hostkey;
+pub mod keygen;
 pub mod relay;
 pub mod session;
+pub mod sshsig;
 
 // ── Flat re-exports (FR-23) ───────────────────────────────────────────────────
 

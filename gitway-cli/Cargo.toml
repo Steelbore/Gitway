@@ -18,6 +18,14 @@ rust-version.workspace = true
 name = "gitway"
 path = "src/main.rs"
 
+# Shim for `ssh-keygen` — byte-compatible surface for the `gpg.ssh.program`
+# slot so `git -c gpg.format=ssh -c gpg.ssh.program=gitway-keygen ...` works
+# without OpenSSH installed. See `src/bin/gitway-keygen.rs` for the
+# accepted flag set.
+[[bin]]
+name = "gitway-keygen"
+path = "src/bin/gitway-keygen.rs"
+
 # ── Debian packaging (cargo-deb) ──────────────────────────────────────────────
 [package.metadata.deb]
 section  = "vcs"
@@ -55,3 +63,4 @@ rpassword.workspace  = true
 mimalloc.workspace   = true
 zeroize.workspace    = true
 serde_json.workspace = true
+ssh-key.workspace    = true

@@ -204,6 +204,64 @@ of a transport client.
 
 ---
 
+## Generating keys and signing commits (no OpenSSH required)
+
+Gitway 0.4 ships a subset of `ssh-keygen` so you can generate keys and
+SSH-sign git commits without `openssh-clients` installed.
+
+### `gitway keygen` — the Gitway-native UX
+
+```sh
+# Generate an Ed25519 keypair:
+gitway keygen generate -f ~/.ssh/id_ed25519
+
+# Fingerprint an existing key:
+gitway keygen fingerprint -f ~/.ssh/id_ed25519.pub
+
+# Derive the public key from a private key:
+gitway keygen extract-public -f ~/.ssh/id_ed25519 -o ~/.ssh/id_ed25519.pub
+
+# Change (or remove) the passphrase:
+gitway keygen change-passphrase -f ~/.ssh/id_ed25519
+```
+
+All subcommands honor `--json` / `--format json` and the agent-env
+detection rules documented under *Dual-mode output* (SFRS Rule 1).
+
+### `gitway sign` — SSHSIG signatures
+
+```sh
+# Sign stdin, print the armored SSH SIGNATURE to stdout:
+echo 'hello' | gitway sign --namespace git --key ~/.ssh/id_ed25519
+
+# Sign a file:
+gitway sign --namespace git --key ~/.ssh/id_ed25519 --input msg.txt --output msg.sig
+```
+
+### Verified commits on GitHub — `gpg.ssh.program=gitway-keygen`
+
+Git invokes `gpg.ssh.program` when `gpg.format=ssh`, passing it the exact
+ssh-keygen `-Y sign` / `-Y verify` argv. The `gitway-keygen` binary ships
+alongside `gitway` specifically to sit in that slot — it is byte-compatible
+with `ssh-keygen`'s stdout so git's output parser is satisfied.
+
+```sh
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global commit.gpgsign true
+git config --global gpg.ssh.program gitway-keygen
+```
+
+Upload the same public key to GitHub under **Settings → SSH and GPG keys →
+New SSH key → Key type: Signing Key**. After that, every commit is SSH-signed
+via Gitway's code and GitHub shows **Verified** next to it — with zero
+OpenSSH involvement.
+
+Everything above uses the pure-Rust `ssh-key` crate (RustCrypto) for the
+OpenSSH key format and the SSHSIG file-signature blob.
+
+---
+
 ## Library usage
 
 Add to `Cargo.toml`:

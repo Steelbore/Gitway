@@ -42,6 +42,10 @@ pub(crate) enum GitwayErrorKind {
     NoKeyFound,
     /// Configuration is logically invalid.
     InvalidConfig { message: String },
+    /// SSH signature production failed (bad key, I/O, encoding).
+    Signing { message: String },
+    /// SSH signature verification failed (tampering, wrong signer, namespace mismatch).
+    SignatureInvalid { reason: String },
 }
 
 impl fmt::Display for GitwayErrorKind {
@@ -62,6 +66,10 @@ impl fmt::Display for GitwayErrorKind {
                 write!(f, "no SSH identity key found on any search path or agent")
             }
             Self::InvalidConfig { message } => write!(f, "invalid configuration: {message}"),
+            Self::Signing { message } => write!(f, "SSH signing failed: {message}"),
+            Self::SignatureInvalid { reason } => {
+                write!(f, "SSH signature verification failed: {reason}")
+            }
         }
     }
 }
@@ -123,6 +131,25 @@ impl GitwayError {
         })
     }
 
+    /// Signals that SSH signature production failed.
+    ///
+    /// Mapped to exit code 1 (`GENERAL_ERROR`).
+    pub fn signing(message: impl Into<String>) -> Self {
+        Self::new(GitwayErrorKind::Signing {
+            message: message.into(),
+        })
+    }
+
+    /// Signals that SSH signature verification failed.
+    ///
+    /// Mapped to exit code 4 (`PERMISSION_DENIED`) to match git's treatment
+    /// of a non-zero `ssh-keygen -Y verify` as an authentication-class failure.
+    pub fn signature_invalid(reason: impl Into<String>) -> Self {
+        Self::new(GitwayErrorKind::SignatureInvalid {
+            reason: reason.into(),
+        })
+    }
+
     // ── Predicates ────────────────────────────────────────────────────────────
 
     /// Returns `true` if this error originated from an I/O failure.
@@ -180,12 +207,13 @@ impl GitwayError {
         match &self.kind {
             GitwayErrorKind::InvalidConfig { .. } => "USAGE_ERROR",
             GitwayErrorKind::NoKeyFound => "NOT_FOUND",
-            GitwayErrorKind::HostKeyMismatch { .. } | GitwayErrorKind::AuthenticationFailed => {
-                "PERMISSION_DENIED"
-            }
-            GitwayErrorKind::Io(_) | GitwayErrorKind::Ssh(_) | GitwayErrorKind::Keys(_) => {
-                "GENERAL_ERROR"
-            }
+            GitwayErrorKind::HostKeyMismatch { .. }
+            | GitwayErrorKind::AuthenticationFailed
+            | GitwayErrorKind::SignatureInvalid { .. } => "PERMISSION_DENIED",
+            GitwayErrorKind::Io(_)
+            | GitwayErrorKind::Ssh(_)
+            | GitwayErrorKind::Keys(_)
+            | GitwayErrorKind::Signing { .. } => "GENERAL_ERROR",
         }
     }
 
@@ -202,8 +230,13 @@ impl GitwayError {
         match &self.kind {
             GitwayErrorKind::InvalidConfig { .. } => 2,
             GitwayErrorKind::NoKeyFound => 3,
-            GitwayErrorKind::HostKeyMismatch { .. } | GitwayErrorKind::AuthenticationFailed => 4,
-            GitwayErrorKind::Io(_) | GitwayErrorKind::Ssh(_) | GitwayErrorKind::Keys(_) => 1,
+            GitwayErrorKind::HostKeyMismatch { .. }
+            | GitwayErrorKind::AuthenticationFailed
+            | GitwayErrorKind::SignatureInvalid { .. } => 4,
+            GitwayErrorKind::Io(_)
+            | GitwayErrorKind::Ssh(_)
+            | GitwayErrorKind::Keys(_)
+            | GitwayErrorKind::Signing { .. } => 1,
         }
     }
 
@@ -224,6 +257,14 @@ impl GitwayError {
             }
             GitwayErrorKind::InvalidConfig { .. } => {
                 "Run 'gitway --help' for usage information"
+            }
+            GitwayErrorKind::Signing { .. } => {
+                "Ensure the private key is readable and the passphrase is correct; \
+                 run with --verbose to see the underlying cryptographic error"
+            }
+            GitwayErrorKind::SignatureInvalid { .. } => {
+                "The signature is invalid, was signed with a different key, \
+                 or uses a different namespace than expected"
             }
             GitwayErrorKind::Io(_) | GitwayErrorKind::Ssh(_) | GitwayErrorKind::Keys(_) => {
                 "Run 'gitway --test --verbose' to diagnose the connection"

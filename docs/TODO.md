@@ -72,3 +72,133 @@
 - [✓] Confirm all 25 tests pass with aws-lc-rs backend.
 - [✓] Verify binary size remains under 10 MB target (6.6 MB achieved).
 - [✓] Fix hostname parsing to strip username (e.g., `git@github.com` → `github.com`).
+
+## Milestone 11: Key generation and SSH signing — Phase 1 of §5.7 (v0.4)
+
+OpenSSH-free key generation and commit signing so `gpg.format=ssh` works without `openssh-clients` installed. Covers PRD §5.7.1 (FR-25..31) and §5.7.2 (FR-32..35).
+
+### Dependencies
+
+- [✓] Add `ssh-key = "0.6.7"` (pure-Rust OpenSSH format + SSHSIG, RustCrypto).
+- [✓] Add `sha2 = "0.10"` and `rand_core = "0.6"` workspace deps.
+
+### `gitway-lib` — new modules
+
+- [✓] `gitway-lib/src/keygen.rs` — `KeyType` enum; `generate`, `write_keypair`, `change_passphrase`, `fingerprint`, `extract_public`.
+- [✓] `gitway-lib/src/sshsig.rs` — `sign`, `verify`, `check_novalidate`, `find_principals`; `Verified` struct.
+- [✓] `gitway-lib/src/allowed_signers.rs` — parser for git's `allowed_signers` file (principals, `namespaces="…"`, `cert-authority`, `!negation`, quoted patterns).
+- [✓] Register all three modules in `gitway-lib/src/lib.rs`.
+
+### `GitwayError`
+
+- [✓] Add `Signing { message }` variant → exit 1 / `GENERAL_ERROR`.
+- [✓] Add `SignatureInvalid { reason }` variant → exit 4 / `PERMISSION_DENIED`.
+- [✓] Update `error_code`, `exit_code`, `hint`, `Display` tables.
+
+### `gitway` CLI (`gitway-cli` binary)
+
+- [✓] Extend `GitwaySubcommand` enum with `Keygen(KeygenArgs)` and `Sign(SignArgs)` plus nested subcommands (`generate`, `fingerprint`, `extract-public`, `change-passphrase`, `sign`, `verify`).
+- [✓] Implement `gitway-cli/src/keygen.rs` dispatcher with `--json` support.
+- [✓] Implement `gitway-cli/src/sign.rs` dispatcher (top-level alias for `keygen sign`).
+- [✓] Wire both into `run()` in `main.rs`; expose `prompt_passphrase`, `now_iso8601`, `emit_json` as `pub(crate)`.
+- [✓] Update `run_schema` / `run_describe` JSON manifests to advertise the new verbs and `gitway-keygen` companion binary.
+
+### `gitway-keygen` shim binary (ssh-keygen-compat)
+
+- [✓] Add `[[bin]] name = "gitway-keygen"` to `gitway-cli/Cargo.toml`.
+- [✓] Hand-rolled argv parser (not clap) for byte-strict compat: `-t -b -f -N -C -l -y -p -P -Y -n -I -s -E -O`.
+- [✓] Dispatch `-Y sign`, `-Y verify`, `-Y check-novalidate`, `-Y find-principals` via `gitway_lib::sshsig`.
+- [✓] Dispatch keygen, fingerprint, extract-public, change-passphrase via `gitway_lib::keygen`.
+- [✓] Refuse `--json` (stdout must be byte-compatible with `ssh-keygen`).
+
+### Tests
+
+- [✓] Unit tests in each new lib module: sign/verify round-trip for Ed25519 and ECDSA P-256; keygen round-trip (encrypted + unencrypted, mode 0600 on Unix); `allowed_signers` glob/negation/namespace parsing.
+- [✓] `#[ignore]` the RSA SSHSIG test with a note — known `ssh-key` 0.6.7 sharp edge. Revisit when `ssh-key` 0.7 ships.
+- [✓] Live smoke test: `gitway-keygen -t ed25519 … && gitway-keygen -Y sign … | gitway-keygen -Y check-novalidate …` exits 0.
+- [ ] `tests/ssh_keygen_compat.rs` — integration test (gated on `GITWAY_INTEGRATION_TESTS=1`) that invokes the compiled `gitway-keygen` as a subprocess with git's literal argv and cross-checks against real `ssh-keygen` when available.
+- [ ] Real GitHub signed-commit end-to-end: `gh api user/ssh_signing_keys` → `git -c gpg.ssh.program=./target/release/gitway-keygen commit -S` → assert `commit.verification.verified == true`.
+
+### Documentation
+
+- [✓] README: new "Generating keys and signing commits (no OpenSSH required)" section covering `gitway keygen`, `gitway sign`, and the `gpg.ssh.program=gitway-keygen` recipe.
+- [✓] README: "Avoiding repeated passphrase prompts" section (explains `ssh-add`).
+- [ ] Update `docs/Plan.md` with the phase 1 architecture notes.
+
+### CI & release
+
+- [ ] Extend release workflow to build and publish the `gitway-keygen` binary alongside `gitway` for all three platforms.
+- [ ] Update Debian / RPM packaging to include `gitway-keygen`.
+- [ ] Update AUR PKGBUILD similarly.
+- [ ] Cut v0.4.0 tag once the integration test + real GitHub round-trip are green.
+
+## Milestone 12: SSH agent client — Phase 2 of §5.7 (v0.5)
+
+Client-side agent operations so `gitway agent add/list/remove` replaces `ssh-add` against any running agent (Gitway's own or OpenSSH's). Covers PRD §5.7.3 (FR-36..40).
+
+### Dependencies
+
+- [ ] Add `ssh-agent-lib = "0.5.2"` with `client` feature only.
+
+### `gitway-lib` — agent client
+
+- [ ] `gitway-lib/src/agent/mod.rs` + `gitway-lib/src/agent/client.rs` — wrapper over `ssh_agent_lib::client::Client`. Public fns: `connect(socket: Option<PathBuf>)`, `add_identity`, `list_identities`, `remove_identity`, `remove_all`, `lock`, `unlock`.
+- [ ] Respect `$SSH_AUTH_SOCK` by default.
+- [ ] Keep existing `connect_agent()` in `gitway-lib/src/auth.rs` (russh-agent-based) for transport; do not mix the two client types across the boundary.
+
+### `gitway` CLI
+
+- [ ] Extend `GitwaySubcommand` with `Agent(AgentArgs)` + nested `AgentSubcommand::{Add, List, Remove, Lock, Unlock}`.
+- [ ] `gitway-cli/src/agent.rs` dispatcher with `--json` support and lifetime (`-t <seconds>`) forwarding.
+
+### `gitway-add` shim binary (ssh-add-compat)
+
+- [ ] Add `[[bin]] name = "gitway-add"` to `gitway-cli/Cargo.toml`.
+- [ ] Hand-rolled argv parser accepting `ssh-add` surface: `-l -L -d -D -x -X -t <sec> -E <hash> [files…]`.
+
+### Tests
+
+- [ ] `tests/agent_client.rs` (gated) — spawn OpenSSH's `ssh-agent -D -a <tmp>`, run `gitway agent add <key>` against it, assert `list` / `remove`.
+- [ ] Skip gracefully when `ssh-agent` is not on PATH.
+
+### Documentation & release
+
+- [ ] README: "Loading keys into any agent" section.
+- [ ] Update release workflow, packaging metadata, AUR PKGBUILD for the `gitway-add` asset.
+- [ ] Cut v0.5.0 tag.
+
+## Milestone 13: SSH agent daemon — Phase 3 of §5.7 (v0.6)
+
+Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. Covers PRD §5.7.4 (FR-41..46).
+
+### Dependencies
+
+- [ ] Flip `ssh-agent-lib` to include `server` feature in addition to `client`.
+- [ ] Add `nix` (pure-Rust) for fork/setsid/umask/signal handling on Unix.
+
+### `gitway-lib` — agent daemon
+
+- [ ] `gitway-lib/src/agent/daemon.rs` — implements `ssh_agent_lib::agent::Session` trait backed by an in-memory `HashMap<Fingerprint, LoadedKey>` where `LoadedKey` wraps `ssh_key::PrivateKey` with `Zeroizing`-safe storage and an optional expiry instant.
+- [ ] Per-key TTL enforced via tokio timers.
+- [ ] SIGTERM/SIGINT handlers: unlink socket, remove pid file, zero every stored key.
+- [ ] Unix socket permissions: 0600 mode inside a 0700 parent dir at `$XDG_RUNTIME_DIR/gitway-agent.$PID.sock`.
+- [ ] Windows named-pipe transport (`\\.\pipe\openssh-ssh-agent`-compatible name).
+
+### `gitway` CLI
+
+- [ ] Extend `AgentSubcommand` with `Start(AgentStartArgs)` + `Stop`.
+- [ ] `-D` foreground mode (no daemonization) for systemd / launchd.
+- [ ] `-s` / `-c` eval-output selection, auto-detect from `$SHELL`.
+- [ ] `gitway agent stop` locates the daemon via `$SSH_AGENT_PID` or pid file.
+
+### Tests
+
+- [ ] `tests/agent_daemon.rs` (gated) — spawn `gitway agent start -D -a <tmp>`, drive `gitway agent add/list/remove` against it, assert socket teardown on `stop`. Skip on Windows.
+- [ ] Lifetime test: `add` with `-t 2`, sleep 3s, `list` is empty.
+- [ ] Transport integration: `eval $(gitway agent start -s) && gitway-add <key> && git push …` authenticates with zero prompts.
+
+### Documentation & release
+
+- [ ] README: "Running a Gitway agent instead of ssh-agent" section, incl. the `eval $(gitway agent start -s)` recipe and Windows caveat.
+- [ ] Optional `packaging/systemd/gitway-agent.service` user unit (no system install).
+- [ ] Cut v0.6.0 tag.

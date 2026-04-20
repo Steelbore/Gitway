@@ -15,11 +15,13 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod cli;
+mod keygen;
+mod sign;
 
 use std::process;
 
 use clap::Parser as _;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize as _, Zeroizing};
 
 use gitway_lib::auth::{IdentityResolution, find_identity};
 #[cfg(unix)]
@@ -32,10 +34,11 @@ use cli::{Cli, GitwaySubcommand, OutputFormat};
 
 /// Whether to emit human-readable or machine-readable (JSON) output.
 ///
-/// Applies to `--test`, `--install`, `schema`, and `describe`.
-/// The exec (git relay) path is always passthrough regardless of mode.
+/// Applies to `--test`, `--install`, `schema`, `describe`, and the new
+/// `keygen` / `sign` subcommands. The exec (git relay) path is always
+/// passthrough regardless of mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutputMode {
+pub(crate) enum OutputMode {
     Human,
     Json,
 }
@@ -81,7 +84,7 @@ fn is_agent_or_ci_env() -> bool {
 // ── ISO 8601 timestamp (no external crate) ────────────────────────────────────
 
 /// Returns the current UTC time as an ISO 8601 string (e.g. `2026-04-12T14:30:00Z`).
-fn now_iso8601() -> String {
+pub(crate) fn now_iso8601() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -120,6 +123,23 @@ fn epoch_secs_to_iso8601(secs: u64) -> String {
     let y = if m <= 2 { y + 1 } else { y };
 
     format!("{y:04}-{m:02}-{d:02}T{hour:02}:{min:02}:{sec:02}Z")
+}
+
+// ── JSON emission helpers ─────────────────────────────────────────────────────
+
+/// Emits a structured JSON value to stdout as a single line + newline.
+///
+/// All Gitway commands that produce JSON output go through this function so
+/// a future formatting change (e.g. pretty-printing) applies uniformly.
+pub(crate) fn emit_json(value: &serde_json::Value) {
+    println!("{value}");
+}
+
+/// Emits a single human-readable line to stdout (unlike `eprintln!`, which
+/// writes to stderr). Used by commands where the result itself is the
+/// payload the user asked for (e.g. `keygen fingerprint`, `keygen verify`).
+pub(crate) fn emit_json_line(line: &str) {
+    println!("{line}");
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -191,11 +211,14 @@ async fn main() {
 // ── Top-level dispatch ────────────────────────────────────────────────────────
 
 async fn run(cli: Cli) -> Result<u32, GitwayError> {
-    // Handle schema / describe subcommands first — they need no connection.
-    if let Some(ref subcommand) = cli.subcommand {
+    // Handle subcommands first — none of them open an SSH connection.
+    let mode = detect_output_mode(&cli, true);
+    if let Some(subcommand) = cli.subcommand {
         return match subcommand {
             GitwaySubcommand::Schema => Ok(run_schema()),
             GitwaySubcommand::Describe => Ok(run_describe()),
+            GitwaySubcommand::Keygen(args) => keygen::run(args.command, mode),
+            GitwaySubcommand::Sign(args) => sign::run(&args, mode),
         };
     }
 
@@ -443,6 +466,30 @@ fn run_schema() -> u32 {
                 "description": "Emit capability manifest for agent/CI discovery",
                 "supports_json": true,
                 "idempotent": true,
+            },
+            {
+                "name": "gitway keygen <sub>",
+                "description": "Generate, inspect, and sign with SSH keys (ssh-keygen subset)",
+                "supports_json": true,
+                "idempotent": false,
+                "subcommands": [
+                    "generate", "fingerprint", "extract-public",
+                    "change-passphrase", "sign", "verify"
+                ]
+            },
+            {
+                "name": "gitway sign",
+                "description": "Produce an SSHSIG (OpenSSH file signature) on stdout",
+                "supports_json": true,
+                "idempotent": true,
+            }
+        ],
+        "binaries": [
+            {
+                "name": "gitway-keygen",
+                "description": "Drop-in shim for `ssh-keygen -Y sign / verify` (byte-compatible stdout)",
+                "supports_json": false,
+                "use_with": "git -c gpg.format=ssh -c gpg.ssh.program=gitway-keygen"
             }
         ],
         "global_flags": {
@@ -505,7 +552,22 @@ fn run_describe() -> u32 {
                 "description": "Emit capability manifest for agent/CI discovery",
                 "supports_json": true,
                 "idempotent": true,
+            },
+            {
+                "name": "gitway keygen",
+                "description": "Generate / inspect / sign with SSH keys",
+                "supports_json": true,
+                "idempotent": false,
+            },
+            {
+                "name": "gitway sign",
+                "description": "Produce an SSHSIG file signature",
+                "supports_json": true,
+                "idempotent": true,
             }
+        ],
+        "companion_binaries": [
+            "gitway-keygen"
         ],
         "global_flags": ["--json", "--format", "--verbose", "--no-color",
                          "--insecure-skip-host-check", "--identity", "--cert", "--port"],
@@ -605,7 +667,7 @@ async fn authenticate_with_prompt(
 ///
 /// The returned string is wrapped in [`Zeroizing`] so the bytes are overwritten
 /// before the allocation is released (NFR-3).
-fn prompt_passphrase(path: &std::path::Path) -> Result<Zeroizing<String>, GitwayError> {
+pub(crate) fn prompt_passphrase(path: &std::path::Path) -> Result<Zeroizing<String>, GitwayError> {
     let prompt = format!("Enter passphrase for {}: ", path.display());
 
     if let Some(passphrase) = try_askpass(&prompt)? {
@@ -722,7 +784,6 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     let mut stdout = output.stdout;
 
     if !status.success() {
-        use zeroize::Zeroize as _;
         stdout.zeroize();
         return Err(GitwayError::invalid_config(format!(
             "SSH_ASKPASS program {askpass:?} exited with status {status}"
@@ -735,7 +796,6 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     let passphrase = if let Ok(raw) = std::str::from_utf8(&stdout) {
         raw.trim_end_matches('\n').to_owned()
     } else {
-        use zeroize::Zeroize as _;
         stdout.zeroize();
         return Err(GitwayError::invalid_config(
             "SSH_ASKPASS program returned non-UTF-8 output",
@@ -743,10 +803,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     };
 
     // Zero the raw buffer now that the passphrase has been copied out.
-    {
-        use zeroize::Zeroize as _;
-        stdout.zeroize()
-    };
+    stdout.zeroize();
 
     // An empty passphrase means the user cancelled the dialog (or the askpass
     // program — e.g. VS Code's ssh-askpass.sh — does not handle SSH key

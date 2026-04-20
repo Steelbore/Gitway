@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 // ── Output format ─────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ pub enum OutputFormat {
 
 // ── Subcommands ───────────────────────────────────────────────────────────────
 
-/// Optional subcommands for agent/CI discovery (SFRS Rule 4).
+/// Optional subcommands for agent/CI discovery and key operations (SFRS Rule 4).
 #[derive(Debug, Subcommand)]
 pub enum GitwaySubcommand {
     /// Emit the full JSON Schema (Draft 2020-12) for all Gitway commands.
@@ -41,6 +41,188 @@ pub enum GitwaySubcommand {
     /// Lists commands, flags, and output format support.
     /// Output is always JSON regardless of `--format`.
     Describe,
+    /// Generate, inspect, and sign with SSH keys.
+    ///
+    /// `gitway keygen` replaces the subset of `ssh-keygen` needed for
+    /// day-to-day git workflows: generate keys, print fingerprints, and
+    /// produce / verify SSHSIG signatures.
+    Keygen(KeygenArgs),
+    /// Produce an SSHSIG signature over data read from a file or stdin.
+    ///
+    /// Ergonomic alias for `gitway keygen sign` with a flat flag layout.
+    Sign(SignArgs),
+}
+
+// ── Keygen arguments ──────────────────────────────────────────────────────────
+
+/// Top-level flags + nested subcommand for `gitway keygen`.
+#[derive(Debug, Args)]
+pub struct KeygenArgs {
+    #[command(subcommand)]
+    pub command: KeygenSubcommand,
+}
+
+/// Subcommands under `gitway keygen`.
+#[derive(Debug, Subcommand)]
+pub enum KeygenSubcommand {
+    /// Generate a new keypair.
+    Generate(GenerateArgs),
+    /// Print the fingerprint of an existing public key.
+    Fingerprint(FingerprintArgs),
+    /// Write the public key derived from a private key file.
+    ExtractPublic(ExtractPublicArgs),
+    /// Change (add / remove) the passphrase on an existing private key.
+    ChangePassphrase(ChangePassphraseArgs),
+    /// Sign data under a namespace, producing an armored SSHSIG on stdout.
+    Sign(SignArgs),
+    /// Verify an SSHSIG against an allowed-signers file.
+    Verify(VerifyArgs),
+}
+
+/// The key algorithm selectable on the CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum KeyAlg {
+    /// Ed25519 (recommended; 256-bit).
+    Ed25519,
+    /// ECDSA. Use `--bits 256 | 384 | 521` to select the curve.
+    Ecdsa,
+    /// RSA. Use `--bits` to pick the modulus size (default 3072).
+    Rsa,
+}
+
+/// The hash algorithm for fingerprints and SSHSIG message digests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum HashKind {
+    /// SHA-256 — the OpenSSH default for fingerprints.
+    Sha256,
+    /// SHA-512 — the default for SSHSIG preambles.
+    Sha512,
+}
+
+/// Arguments for `gitway keygen generate`.
+#[derive(Debug, Args)]
+pub struct GenerateArgs {
+    /// Key algorithm (ed25519 | ecdsa | rsa).
+    #[arg(short = 't', long = "type", value_enum, default_value_t = KeyAlg::Ed25519)]
+    pub kind: KeyAlg,
+
+    /// Key size in bits (ECDSA: 256|384|521; RSA: 2048..16384).
+    #[arg(short = 'b', long = "bits")]
+    pub bits: Option<u32>,
+
+    /// Output path for the private key. `<path>.pub` is written alongside.
+    #[arg(short = 'f', long = "file", value_name = "FILE")]
+    pub file: PathBuf,
+
+    /// Passphrase used to encrypt the private key.
+    ///
+    /// If omitted and `--no-passphrase` is not given, Gitway prompts
+    /// interactively via `rpassword` / `SSH_ASKPASS`.
+    #[arg(short = 'N', long = "passphrase", value_name = "PASSPHRASE")]
+    pub passphrase: Option<String>,
+
+    /// Leave the generated key unencrypted.
+    #[arg(long = "no-passphrase", action = ArgAction::SetTrue, conflicts_with = "passphrase")]
+    pub no_passphrase: bool,
+
+    /// Comment recorded in the key file (defaults to `user@host`).
+    #[arg(short = 'C', long = "comment", value_name = "COMMENT")]
+    pub comment: Option<String>,
+}
+
+/// Arguments for `gitway keygen fingerprint`.
+#[derive(Debug, Args)]
+pub struct FingerprintArgs {
+    /// Path to a private or public key file.
+    #[arg(short = 'f', long = "file", value_name = "FILE")]
+    pub file: PathBuf,
+
+    /// Hash algorithm.
+    #[arg(long = "hash", value_enum, default_value_t = HashKind::Sha256)]
+    pub hash: HashKind,
+}
+
+/// Arguments for `gitway keygen extract-public`.
+#[derive(Debug, Args)]
+pub struct ExtractPublicArgs {
+    /// Path to the private key file.
+    #[arg(short = 'f', long = "file", value_name = "FILE")]
+    pub file: PathBuf,
+
+    /// Output path for the public key; defaults to `<FILE>.pub`.
+    #[arg(short = 'o', long = "output", value_name = "OUT")]
+    pub output: Option<PathBuf>,
+}
+
+/// Arguments for `gitway keygen change-passphrase`.
+#[derive(Debug, Args)]
+pub struct ChangePassphraseArgs {
+    /// Path to the existing private key.
+    #[arg(short = 'f', long = "file", value_name = "FILE")]
+    pub file: PathBuf,
+
+    /// Existing passphrase (prompted if omitted and needed).
+    #[arg(short = 'P', long = "old-passphrase", value_name = "PASSPHRASE")]
+    pub old_passphrase: Option<String>,
+
+    /// Target passphrase (prompted if omitted; implies encryption).
+    #[arg(short = 'N', long = "new-passphrase", value_name = "PASSPHRASE")]
+    pub new_passphrase: Option<String>,
+
+    /// Remove the passphrase entirely (leave the key unencrypted).
+    #[arg(long = "no-passphrase", action = ArgAction::SetTrue, conflicts_with = "new_passphrase")]
+    pub no_passphrase: bool,
+}
+
+/// Arguments for `gitway sign` and `gitway keygen sign`.
+#[derive(Debug, Args)]
+pub struct SignArgs {
+    /// Private key file to sign with. If omitted, the same discovery order
+    /// as the transport path is used (`~/.ssh/id_ed25519`, etc.).
+    #[arg(short = 'f', long = "key", value_name = "FILE")]
+    pub key: Option<PathBuf>,
+
+    /// Namespace for the signature (git uses `git`).
+    #[arg(short = 'n', long = "namespace", value_name = "NS")]
+    pub namespace: String,
+
+    /// Input file; `-` or omitted reads stdin.
+    #[arg(short = 'i', long = "input", value_name = "FILE")]
+    pub input: Option<PathBuf>,
+
+    /// Output file; `-` or omitted writes to stdout.
+    #[arg(short = 'o', long = "output", value_name = "FILE")]
+    pub output: Option<PathBuf>,
+
+    /// Message hash algorithm embedded in the SSHSIG preamble.
+    #[arg(long = "hash", value_enum, default_value_t = HashKind::Sha512)]
+    pub hash: HashKind,
+}
+
+/// Arguments for `gitway keygen verify`.
+#[derive(Debug, Args)]
+pub struct VerifyArgs {
+    /// Signer identity (e.g. an email address) used to look up authorized
+    /// principals in the allowed-signers file.
+    #[arg(short = 'I', long = "signer", value_name = "IDENTITY")]
+    pub signer: String,
+
+    /// Namespace; must match the namespace embedded in the signature.
+    #[arg(short = 'n', long = "namespace", value_name = "NS")]
+    pub namespace: String,
+
+    /// Path to an allowed-signers file mapping principals to public keys.
+    #[arg(long = "allowed-signers", value_name = "FILE")]
+    pub allowed_signers: PathBuf,
+
+    /// Armored SSHSIG signature file produced by `gitway sign`
+    /// or `ssh-keygen -Y sign`.
+    #[arg(short = 's', long = "signature", value_name = "FILE")]
+    pub signature: PathBuf,
+
+    /// Input file; `-` or omitted reads stdin.
+    #[arg(short = 'i', long = "input", value_name = "FILE")]
+    pub input: Option<PathBuf>,
 }
 
 // ── Main CLI struct ───────────────────────────────────────────────────────────

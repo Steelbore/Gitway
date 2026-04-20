@@ -25,6 +25,11 @@ log.workspace      = true
 dirs.workspace     = true
 zeroize.workspace  = true
 
+# SSH key format + SSHSIG signing (phase 1: keygen, sign, verify).
+ssh-key.workspace   = true
+sha2.workspace      = true
+rand_core.workspace = true
+
 [dev-dependencies]
 tokio     = { workspace = true }
 tempfile  = { workspace = true }
