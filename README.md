@@ -173,6 +173,37 @@ If a key file is encrypted, Gitway prompts for the passphrase on the terminal.
 
 ---
 
+## Avoiding repeated passphrase prompts
+
+Gitway is a stateless transport binary: Git launches a fresh `gitway` process
+for every SSH transport operation (`clone`, `fetch`, `push`, remote-probing
+helpers invoked by tools like `gh`). Each process decrypts the key from
+scratch, so an encrypted key without an agent loaded produces one prompt per
+invocation — a single `gh repo clone` can easily surface four or five.
+
+Load the key into `ssh-agent` once per session and all subsequent operations
+authenticate through the agent without prompting:
+
+```sh
+ssh-add ~/.ssh/id_ed25519
+```
+
+Gitway detects `$SSH_AUTH_SOCK` and, when an agent is reachable, skips the
+file-based passphrase prompt entirely. The same agent also satisfies
+`ssh-keygen -Y sign` (Git's default signer for `gpg.format = ssh`), so signed
+commits stop prompting as well.
+
+For persistence across reboots, add `ssh-add ~/.ssh/id_ed25519` to your shell
+startup file, or use a desktop keyring that unlocks on login (e.g.
+`gnome-keyring-daemon --components=ssh`, `gcr-ssh-agent`, or the macOS
+Keychain-backed agent).
+
+Caching decrypted keys inside Gitway itself would require a long-lived daemon,
+duplicating `ssh-agent` and expanding the attack surface — outside the scope
+of a transport client.
+
+---
+
 ## Library usage
 
 Add to `Cargo.toml`:
