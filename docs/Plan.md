@@ -94,8 +94,6 @@ driving via the transport's `#[tokio::main]`.
 
 Tracked as unchecked items under Milestone 13 in `docs/TODO.md`:
 
-- ECDSA P-256 / P-384 / P-521 daemon sign paths
-- RSA daemon sign path (with `rsa-sha2-256` / `rsa-sha2-512` flag honoring)
 - Background double-fork daemonization (currently foreground-only via `-D`)
 - Windows named-pipe transport for client and daemon
 - Interactive `--confirm` flow (needs an askpass-style side channel)
@@ -119,12 +117,14 @@ Tracked as unchecked items under Milestone 13 in `docs/TODO.md`:
 - **Blocking agent client, async agent daemon** — client-side sync code is
   simpler and avoids pulling tokio into `gitway-add`. Daemon side is
   inherently async; ssh-agent-lib's `listen` spawns a task per connection.
-- **Ed25519 + ECDSA for daemon signing, RSA deferred** — Ed25519 and all
-  three ECDSA curves delegate to `ssh-key`'s built-in `Signer<Signature>`
-  trait, which picks the right RustCrypto signer (`ed25519-dalek`,
-  `p256`, `p384`, `p521`). RSA needs a separate path because the SSH
-  agent protocol's `SignRequest.flags` picks the hash at call time and
-  the generic trait impl can't honor that; scheduled for v0.6.x.
+- **Daemon signing covers every algorithm `gitway keygen` can produce**
+  — Ed25519 and the three ECDSA curves delegate to `ssh-key`'s built-in
+  `Signer<Signature>` trait (`ed25519-dalek`, `p256`, `p384`, `p521`).
+  RSA goes through a dedicated path that reads `SignRequest.flags` and
+  routes to `rsa::pkcs1v15::SigningKey<Sha256>` or `<Sha512>` so the
+  client's choice of `rsa-sha2-256` vs `rsa-sha2-512` is honored; the
+  generic trait can't see the flag. SHA-1 `ssh-rsa` downgrade requests
+  are rejected — OpenSSH 8.2+ (Jan 2020) always requests SHA-2.
 
 ## 7. Testing strategy
 

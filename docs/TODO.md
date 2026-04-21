@@ -191,7 +191,7 @@ Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. C
 
 - [✓] Ed25519 sign: full round-trip — real OpenSSH `ssh-keygen -Y sign` produces a valid SSHSIG against the Gitway agent (validated 2026-04-21).
 - [✓] ECDSA P-256 / P-384 / P-521 sign: wired via `ssh-key`'s `Signer<Signature>` trait, which dispatches to `p256`/`p384`/`p521` internally. Unit-tested per curve; real-OpenSSH round-trip verified for all three curves (validated 2026-04-21).
-- [ ] RSA sign: posture unchanged — add/list/remove work but sign is rejected. Implementing it needs a separate path that reads `SignRequest.flags` (`rsa-sha2-256` / `rsa-sha2-512`) and routes through `rsa::pkcs1v15::SigningKey<Sha…>` directly, since the generic `Signer` trait has no way to honor the flag.
+- [✓] RSA sign (PKCS#1 v1.5, SHA-256 and SHA-512): flag-driven path that reads `SignRequest.flags`, picks `rsa-sha2-256` or `rsa-sha2-512`, and routes through `rsa::pkcs1v15::SigningKey<Sha256|Sha512>`. Unit-tested for both flags plus precedence (512 wins when both are set); real-OpenSSH round-trip verified end-to-end via `ssh-keygen -Y sign` → gitway agent → `ssh-keygen -Y check-novalidate` (validated 2026-04-22). SHA-1 `ssh-rsa` downgrade requests are rejected explicitly.
 
 ### `gitway` CLI
 
@@ -216,7 +216,7 @@ Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. C
 ### v0.6.x follow-up punch list
 
 - [✓] ECDSA sign (P-256, P-384, P-521) — landed 2026-04-21 via `ssh-key`'s built-in `Signer<Signature>`.
-- [ ] RSA sign (`rsa::pkcs1v15::SigningKey` driven by the client's `rsa-sha2-256` / `rsa-sha2-512` flag).
+- [✓] RSA sign (`rsa::pkcs1v15::SigningKey` driven by the client's `rsa-sha2-256` / `rsa-sha2-512` flag) — landed 2026-04-22.
 - [ ] Double-fork + setsid background daemonization.
 - [ ] Windows named-pipe transport for both daemon and client.
 - [ ] Interactive `--confirm` flow (needs an SSH_ASKPASS-style side channel).

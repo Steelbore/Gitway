@@ -11,13 +11,14 @@
 //! # Signing support
 //!
 //! The daemon accepts `Add` for keys of every algorithm Gitway's
-//! `keygen` can produce (Ed25519, ECDSA P-256/384/521, RSA 2048..16384).
-//! The `Sign` handler covers **Ed25519 and all three ECDSA curves** via
-//! `ssh-key`'s built-in `Signer<Signature>` trait; RSA sign is still
-//! stubbed because the agent wire protocol's `SignRequest.flags` picks
-//! between SHA-256 and SHA-512 at call time, and the generic trait impl
-//! has no way to honor that. RSA support lands in a follow-up that
-//! routes through `rsa::pkcs1v15::SigningKey<Sha…>` directly.
+//! `keygen` can produce (Ed25519, ECDSA P-256/384/521, RSA 2048..16384)
+//! and signs with all of them. Ed25519 and the three ECDSA curves go
+//! through `ssh-key`'s built-in `Signer<Signature>` trait; RSA routes
+//! directly to `rsa::pkcs1v15::SigningKey<ShaN>` with the digest picked
+//! from `SignRequest.flags` — `rsa-sha2-512` when `RSA_SHA2_512` is set,
+//! `rsa-sha2-256` when `RSA_SHA2_256` is set. Requests with neither
+//! flag (legacy SHA-1 `ssh-rsa`) are rejected: OpenSSH 8.2+ and modern
+//! Git hosts always request SHA-2.
 //!
 //! # Example
 //!
@@ -45,10 +46,11 @@ use async_trait::async_trait;
 use ssh_agent_lib::agent::{listen, Session};
 use ssh_agent_lib::error::AgentError;
 use ssh_agent_lib::proto::{
-    AddIdentity, AddIdentityConstrained, Credential, Identity, KeyConstraint, RemoveIdentity,
-    SignRequest,
+    signature as proto_signature, AddIdentity, AddIdentityConstrained, Credential, Identity,
+    KeyConstraint, RemoveIdentity, SignRequest,
 };
-use ssh_key::{HashAlg, PrivateKey, Signature};
+use ssh_key::private::KeypairData;
+use ssh_key::{Algorithm, HashAlg, PrivateKey, Signature};
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 
@@ -201,7 +203,7 @@ impl Session for AgentSession {
             return Err(AgentError::Failure);
         }
 
-        sign_with_key(&stored.key, &req.data).map_err(|e| {
+        sign_with_key(&stored.key, &req.data, req.flags).map_err(|e| {
             log::warn!("gitway-agent: sign failed for {fp}: {e}");
             AgentError::Failure
         })
@@ -286,32 +288,100 @@ impl AgentSession {
 
 // ── Signing ───────────────────────────────────────────────────────────────────
 
-/// Signs `data` with `key`.
+/// Signs `data` with `key`, honoring the agent protocol `flags` field.
 ///
-/// Ed25519 and all three ECDSA curves (NIST P-256, P-384, P-521) use
+/// Ed25519 and the three ECDSA curves (NIST P-256, P-384, P-521) use
 /// `ssh-key`'s built-in `Signer<Signature>` impl, which picks the right
 /// inner crypto crate (`ed25519-dalek`, `p256`, `p384`, `p521`) and
 /// emits the SSH wire format the agent protocol expects.
 ///
-/// RSA signing still returns [`GitwayError::invalid_config`] because
-/// the agent protocol's `SignRequest.flags` picks between SHA-256 and
-/// SHA-512 at call time, and ssh-key's blanket Signer impl has no way
-/// to honor that. Implementing RSA here needs a separate path that
-/// reads the flag and routes through `rsa::pkcs1v15::SigningKey<Sha…>`
-/// directly — tracked as a v0.6.x follow-up.
-fn sign_with_key(key: &PrivateKey, data: &[u8]) -> Result<Signature, GitwayError> {
+/// RSA is routed directly through `rsa::pkcs1v15::SigningKey<ShaN>`
+/// because the agent protocol's `SignRequest.flags` chooses between
+/// SHA-256 and SHA-512 at call time, and the generic `Signer` impl on
+/// `PrivateKey` has no way to see that flag. `flags & RSA_SHA2_512`
+/// selects `rsa-sha2-512` and `flags & RSA_SHA2_256` selects
+/// `rsa-sha2-256`. The legacy SHA-1 `ssh-rsa` algorithm is rejected:
+/// OpenSSH 8.2+ (Jan 2020) always requests SHA-2 for RSA, GitHub
+/// dropped SHA-1 support in 2022, and there is no modern client that
+/// needs the downgrade.
+fn sign_with_key(key: &PrivateKey, data: &[u8], flags: u32) -> Result<Signature, GitwayError> {
     use signature::Signer;
-    use ssh_key::Algorithm;
     match key.algorithm() {
         Algorithm::Ed25519 | Algorithm::Ecdsa { .. } => key
             .try_sign(data)
             .map_err(|e| GitwayError::signing(format!("sign failed: {e}"))),
+        Algorithm::Rsa { .. } => sign_rsa(key, data, flags),
         other => Err(GitwayError::invalid_config(format!(
-            "agent daemon sign: algorithm {} not yet supported \
-             (Ed25519 + ECDSA P-256/P-384/P-521 in v0.6; RSA follows in v0.6.x)",
+            "agent daemon sign: algorithm {} not supported",
             other.as_str()
         ))),
     }
+}
+
+/// RSA sign path, driven by the agent protocol's `flags`.
+///
+/// `ssh-key` 0.6.7's own `TryFrom<&RsaKeypair> for rsa::RsaPrivateKey`
+/// has a bug where it uses `p` twice instead of `[p, q]`, so we have
+/// to reconstruct the `rsa::RsaPrivateKey` ourselves from the raw
+/// components. The fix is present in `ssh-key` 0.7; until then this
+/// inline build stays.
+fn sign_rsa(key: &PrivateKey, data: &[u8], flags: u32) -> Result<Signature, GitwayError> {
+    use rsa::pkcs1v15::SigningKey;
+    use rsa::signature::{RandomizedSigner, SignatureEncoding};
+    use sha2::{Sha256, Sha512};
+
+    let KeypairData::Rsa(rsa_keypair) = key.key_data() else {
+        return Err(GitwayError::signing(
+            "sign_rsa invoked on non-RSA key".to_string(),
+        ));
+    };
+
+    let private = rsa::RsaPrivateKey::from_components(
+        rsa::BigUint::try_from(&rsa_keypair.public.n)
+            .map_err(|e| GitwayError::signing(format!("rsa modulus parse: {e}")))?,
+        rsa::BigUint::try_from(&rsa_keypair.public.e)
+            .map_err(|e| GitwayError::signing(format!("rsa exponent parse: {e}")))?,
+        rsa::BigUint::try_from(&rsa_keypair.private.d)
+            .map_err(|e| GitwayError::signing(format!("rsa private exponent parse: {e}")))?,
+        vec![
+            rsa::BigUint::try_from(&rsa_keypair.private.p)
+                .map_err(|e| GitwayError::signing(format!("rsa prime p parse: {e}")))?,
+            rsa::BigUint::try_from(&rsa_keypair.private.q)
+                .map_err(|e| GitwayError::signing(format!("rsa prime q parse: {e}")))?,
+        ],
+    )
+    .map_err(|e| GitwayError::signing(format!("rsa from_components: {e}")))?;
+
+    let mut rng = rand_core::OsRng;
+    let (algorithm, sig_bytes) = if flags & proto_signature::RSA_SHA2_512 != 0 {
+        let signing = SigningKey::<Sha512>::new(private);
+        let sig = signing.sign_with_rng(&mut rng, data);
+        (
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha512),
+            },
+            sig.to_bytes().into_vec(),
+        )
+    } else if flags & proto_signature::RSA_SHA2_256 != 0 {
+        let signing = SigningKey::<Sha256>::new(private);
+        let sig = signing.sign_with_rng(&mut rng, data);
+        (
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha256),
+            },
+            sig.to_bytes().into_vec(),
+        )
+    } else {
+        return Err(GitwayError::signing(
+            "rsa sign: SHA-1 `ssh-rsa` requested but not supported — \
+             client must request rsa-sha2-256 or rsa-sha2-512 \
+             (OpenSSH has done so since 8.2)"
+                .to_string(),
+        ));
+    };
+
+    Signature::new(algorithm, sig_bytes)
+        .map_err(|e| GitwayError::signing(format!("ssh signature encode: {e}")))
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -465,7 +535,7 @@ mod tests {
         use ed25519_dalek::Verifier as _;
         let key = generate(KeyType::Ed25519, None, "roundtrip").unwrap();
         let data = b"hello gitway agent";
-        let sig = sign_with_key(&key, data).unwrap();
+        let sig = sign_with_key(&key, data, 0).unwrap();
         assert_eq!(sig.algorithm(), ssh_key::Algorithm::Ed25519);
 
         // Cross-verify via ed25519-dalek directly.
@@ -487,7 +557,7 @@ mod tests {
         use signature::Verifier;
         let key = generate(kind, None, "roundtrip").unwrap();
         let data = b"hello gitway agent";
-        let sig = sign_with_key(&key, data).unwrap();
+        let sig = sign_with_key(&key, data, 0).unwrap();
         key.public_key()
             .key_data()
             .verify(data, &sig)
@@ -509,13 +579,53 @@ mod tests {
         sign_verify_roundtrip(KeyType::EcdsaP521);
     }
 
-    #[test]
-    fn sign_rsa_is_not_supported_yet() {
-        let key = generate(KeyType::Rsa, Some(2048), "rsa-nope").unwrap();
-        let err = sign_with_key(&key, b"data").unwrap_err();
-        assert!(
-            err.to_string().contains("not yet supported"),
-            "unexpected error: {err}"
+    /// RSA roundtrip for both SHA-2 flag variants, since the agent
+    /// protocol picks the digest at call time rather than baking it
+    /// into the key.
+    fn sign_rsa_roundtrip(flags: u32, expected_hash: HashAlg) {
+        use signature::Verifier;
+        let key = generate(KeyType::Rsa, Some(2048), "rsa-roundtrip").unwrap();
+        let data = b"hello gitway agent";
+        let sig = sign_with_key(&key, data, flags).unwrap();
+        assert_eq!(
+            sig.algorithm(),
+            Algorithm::Rsa {
+                hash: Some(expected_hash)
+            }
         );
+        key.public_key()
+            .key_data()
+            .verify(data, &sig)
+            .expect("rsa roundtrip verify");
+    }
+
+    #[test]
+    fn sign_rsa_sha256_roundtrip() {
+        sign_rsa_roundtrip(proto_signature::RSA_SHA2_256, HashAlg::Sha256);
+    }
+
+    #[test]
+    fn sign_rsa_sha512_roundtrip() {
+        sign_rsa_roundtrip(proto_signature::RSA_SHA2_512, HashAlg::Sha512);
+    }
+
+    /// Flag precedence: `RSA_SHA2_512` wins when both flags are set.
+    /// Matches the explicit order in OpenSSH's `ssh_agent_sign` and the
+    /// ssh-agent-lib examples.
+    #[test]
+    fn sign_rsa_prefers_sha512_when_both_flags_set() {
+        sign_rsa_roundtrip(
+            proto_signature::RSA_SHA2_256 | proto_signature::RSA_SHA2_512,
+            HashAlg::Sha512,
+        );
+    }
+
+    /// Flags=0 means the client asked for the legacy SHA-1 `ssh-rsa`
+    /// wire algorithm. We reject it instead of downgrading silently.
+    #[test]
+    fn sign_rsa_rejects_sha1_request() {
+        let key = generate(KeyType::Rsa, Some(2048), "rsa-sha1").unwrap();
+        let err = sign_with_key(&key, b"data", 0).unwrap_err();
+        assert!(err.to_string().contains("SHA-1"), "unexpected error: {err}");
     }
 }

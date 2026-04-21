@@ -1095,6 +1095,7 @@ dependencies = [
  "log",
  "nix 0.29.0",
  "rand_core 0.6.4",
+ "rsa 0.9.10",
  "russh",
  "sha2 0.10.9",
  "signature 2.2.0",

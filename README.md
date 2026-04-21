@@ -347,13 +347,13 @@ gitway agent stop                       # reads $SSH_AGENT_PID or the pid file
 
 ### Scope
 
-- **Fully supported**: Ed25519 and ECDSA (P-256, P-384, P-521) sign
-  operations. Cross-validated against real OpenSSH — `ssh-add`,
-  `ssh-keygen -Y sign`, and `ssh` transport all accept Gitway-agent
-  signatures unchanged.
-- **Partial**: RSA add/list/remove work; RSA sign requests return a
-  protocol failure with a warning logged. RSA sign lands in a
-  follow-up.
+- **Fully supported**: Ed25519, ECDSA (P-256, P-384, P-521), and RSA
+  (`rsa-sha2-256` and `rsa-sha2-512`) sign operations. Cross-validated
+  against real OpenSSH — `ssh-add`, `ssh-keygen -Y sign`, and `ssh`
+  transport all accept Gitway-agent signatures unchanged. The legacy
+  SHA-1 `ssh-rsa` wire algorithm is rejected; OpenSSH 8.2+ and every
+  modern Git host request SHA-2 by default, so this only matters if
+  you explicitly re-enable SHA-1 in your client config.
 - **Deferred**: Windows named pipes. On Windows, keep using Windows
   OpenSSH's agent and `gitway-keygen` for signing.
 

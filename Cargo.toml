@@ -67,6 +67,12 @@ ed25519-dalek = "2"
 # needed for the daemon's generic sign path that covers Ed25519 + ECDSA.
 signature      = "2"
 
+# RSA signer used by the agent daemon. `ssh-key` 0.6.7 bundles this version
+# internally for key parsing; we depend on it directly so the daemon can
+# drive `rsa::pkcs1v15::SigningKey<ShaN>` with the digest picked by
+# `SignRequest.flags` at call time (rsa-sha2-256 vs rsa-sha2-512 vs ssh-rsa).
+rsa           = "0.9"
+
 # Dev / test helpers
 tempfile   = "3"
 

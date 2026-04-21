@@ -38,6 +38,7 @@ ssh-agent-lib.workspace = true
 nix.workspace           = true
 ed25519-dalek.workspace = true
 signature.workspace     = true
+rsa.workspace           = true
 async-trait             = "0.1"
 futures                 = "0.3"
 
