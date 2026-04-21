@@ -119,9 +119,12 @@ Tracked as unchecked items under Milestone 13 in `docs/TODO.md`:
 - **Blocking agent client, async agent daemon** — client-side sync code is
   simpler and avoids pulling tokio into `gitway-add`. Daemon side is
   inherently async; ssh-agent-lib's `listen` spawns a task per connection.
-- **Ed25519-first for daemon signing** — it's the dominant algorithm for git
-  SSH signing. ECDSA and RSA sign paths are stubbed in v0.6 and filled in
-  across v0.6.x.
+- **Ed25519 + ECDSA for daemon signing, RSA deferred** — Ed25519 and all
+  three ECDSA curves delegate to `ssh-key`'s built-in `Signer<Signature>`
+  trait, which picks the right RustCrypto signer (`ed25519-dalek`,
+  `p256`, `p384`, `p521`). RSA needs a separate path because the SSH
+  agent protocol's `SignRequest.flags` picks the hash at call time and
+  the generic trait impl can't honor that; scheduled for v0.6.x.
 
 ## 7. Testing strategy
 

@@ -345,13 +345,15 @@ requests override the daemon-wide default.
 gitway agent stop                       # reads $SSH_AGENT_PID or the pid file
 ```
 
-### Scope in v0.6
+### Scope
 
-- **Fully supported**: Ed25519 sign operations. Round-trip works with
-  OpenSSH's `ssh-add`, `ssh-keygen -Y sign`, and `ssh` transport.
-- **Partial**: ECDSA and RSA add/list/remove work; sign requests for
-  those algorithms return a protocol failure with a warning logged.
-  Per-algorithm sign support lands in v0.6.x.
+- **Fully supported**: Ed25519 and ECDSA (P-256, P-384, P-521) sign
+  operations. Cross-validated against real OpenSSH — `ssh-add`,
+  `ssh-keygen -Y sign`, and `ssh` transport all accept Gitway-agent
+  signatures unchanged.
+- **Partial**: RSA add/list/remove work; RSA sign requests return a
+  protocol failure with a warning logged. RSA sign lands in a
+  follow-up.
 - **Deferred**: Windows named pipes. On Windows, keep using Windows
   OpenSSH's agent and `gitway-keygen` for signing.
 

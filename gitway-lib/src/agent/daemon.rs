@@ -8,15 +8,16 @@
 //! `SIGINT` trigger graceful shutdown — the socket is unlinked, the pid
 //! file removed, and every stored key is zeroed before the process exits.
 //!
-//! # Signing support (v0.6)
+//! # Signing support
 //!
 //! The daemon accepts `Add` for keys of every algorithm Gitway's
 //! `keygen` can produce (Ed25519, ECDSA P-256/384/521, RSA 2048..16384).
-//! The `Sign` handler, however, only covers **Ed25519** in v0.6;
-//! ECDSA and RSA sign requests return an `AgentError::Failure` with a
-//! `log::warn!` entry so callers see a clear error and operators can
-//! see that the unsupported path was hit. Supporting those algorithms
-//! is tracked as a follow-up within the v0.6.x series.
+//! The `Sign` handler covers **Ed25519 and all three ECDSA curves** via
+//! `ssh-key`'s built-in `Signer<Signature>` trait; RSA sign is still
+//! stubbed because the agent wire protocol's `SignRequest.flags` picks
+//! between SHA-256 and SHA-512 at call time, and the generic trait impl
+//! has no way to honor that. RSA support lands in a follow-up that
+//! routes through `rsa::pkcs1v15::SigningKey<Sha…>` directly.
 //!
 //! # Example
 //!
@@ -287,32 +288,30 @@ impl AgentSession {
 
 /// Signs `data` with `key`.
 ///
-/// v0.6 implements Ed25519 directly via `ed25519-dalek`. ECDSA and RSA
-/// sign paths return an error so the caller sees a structured failure
-/// rather than silently-wrong signatures.
+/// Ed25519 and all three ECDSA curves (NIST P-256, P-384, P-521) use
+/// `ssh-key`'s built-in `Signer<Signature>` impl, which picks the right
+/// inner crypto crate (`ed25519-dalek`, `p256`, `p384`, `p521`) and
+/// emits the SSH wire format the agent protocol expects.
+///
+/// RSA signing still returns [`GitwayError::invalid_config`] because
+/// the agent protocol's `SignRequest.flags` picks between SHA-256 and
+/// SHA-512 at call time, and ssh-key's blanket Signer impl has no way
+/// to honor that. Implementing RSA here needs a separate path that
+/// reads the flag and routes through `rsa::pkcs1v15::SigningKey<Sha…>`
+/// directly — tracked as a v0.6.x follow-up.
 fn sign_with_key(key: &PrivateKey, data: &[u8]) -> Result<Signature, GitwayError> {
+    use signature::Signer;
     use ssh_key::Algorithm;
     match key.algorithm() {
-        Algorithm::Ed25519 => sign_ed25519(key, data),
+        Algorithm::Ed25519 | Algorithm::Ecdsa { .. } => key
+            .try_sign(data)
+            .map_err(|e| GitwayError::signing(format!("sign failed: {e}"))),
         other => Err(GitwayError::invalid_config(format!(
-            "agent daemon sign: algorithm {} not yet supported (Ed25519 only in v0.6)",
+            "agent daemon sign: algorithm {} not yet supported \
+             (Ed25519 + ECDSA P-256/P-384/P-521 in v0.6; RSA follows in v0.6.x)",
             other.as_str()
         ))),
     }
-}
-
-fn sign_ed25519(key: &PrivateKey, data: &[u8]) -> Result<Signature, GitwayError> {
-    use ed25519_dalek::Signer as _;
-    use ssh_key::private::KeypairData;
-    let KeypairData::Ed25519(kp) = key.key_data() else {
-        return Err(GitwayError::invalid_config(
-            "internal: Ed25519 sign called on non-Ed25519 key",
-        ));
-    };
-    let sk = ed25519_dalek::SigningKey::from_bytes(&kp.private.to_bytes());
-    let sig = sk.sign(data);
-    Signature::new(ssh_key::Algorithm::Ed25519, sig.to_bytes().to_vec())
-        .map_err(|e| GitwayError::signing(format!("Ed25519 signature encode failed: {e}")))
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -479,10 +478,44 @@ mod tests {
         verifying.verify(data, &dalek_sig).unwrap();
     }
 
+    /// Verifies that `sign_with_key` produces a signature that
+    /// `ssh_key::PublicKey::verify` (which delegates to the underlying
+    /// `RustCrypto` verifier for this algorithm) accepts. Parameterised
+    /// over `KeyType` so one helper covers Ed25519 + the three ECDSA
+    /// curves.
+    fn sign_verify_roundtrip(kind: KeyType) {
+        use signature::Verifier;
+        let key = generate(kind, None, "roundtrip").unwrap();
+        let data = b"hello gitway agent";
+        let sig = sign_with_key(&key, data).unwrap();
+        key.public_key()
+            .key_data()
+            .verify(data, &sig)
+            .unwrap_or_else(|e| panic!("verify failed for {kind:?}: {e}"));
+    }
+
     #[test]
-    fn sign_ecdsa_is_not_supported_yet() {
-        let key = generate(KeyType::EcdsaP256, None, "nope").unwrap();
+    fn sign_ecdsa_p256_roundtrip() {
+        sign_verify_roundtrip(KeyType::EcdsaP256);
+    }
+
+    #[test]
+    fn sign_ecdsa_p384_roundtrip() {
+        sign_verify_roundtrip(KeyType::EcdsaP384);
+    }
+
+    #[test]
+    fn sign_ecdsa_p521_roundtrip() {
+        sign_verify_roundtrip(KeyType::EcdsaP521);
+    }
+
+    #[test]
+    fn sign_rsa_is_not_supported_yet() {
+        let key = generate(KeyType::Rsa, Some(2048), "rsa-nope").unwrap();
         let err = sign_with_key(&key, b"data").unwrap_err();
-        assert!(err.to_string().contains("not yet supported"));
+        assert!(
+            err.to_string().contains("not yet supported"),
+            "unexpected error: {err}"
+        );
     }
 }

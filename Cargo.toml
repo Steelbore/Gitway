@@ -63,6 +63,10 @@ nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
 # code reference it directly.
 ed25519-dalek = "2"
 
+# The `signature::Signer` trait that `ssh-key::PrivateKey` implements —
+# needed for the daemon's generic sign path that covers Ed25519 + ECDSA.
+signature      = "2"
+
 # Dev / test helpers
 tempfile   = "3"
 
