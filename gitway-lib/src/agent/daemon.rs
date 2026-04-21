@@ -184,23 +184,37 @@ impl Session for AgentSession {
     }
 
     async fn sign(&mut self, req: SignRequest) -> Result<Signature, AgentError> {
-        let store = self.store.lock().await;
-        if store.is_locked() {
-            return Err(AgentError::Failure);
-        }
         let pk = ssh_key::PublicKey::from(req.pubkey.clone());
         let fp = pk.fingerprint(HashAlg::Sha256).to_string();
-        let stored = store.keys.get(&fp).ok_or(AgentError::Failure)?;
+
+        // Take a clone of the StoredKey and release the store lock
+        // before any potentially slow work (askpass round-trip, the
+        // signing itself). Holding the lock across an askpass wait
+        // would block every other client for up to ASKPASS_TIMEOUT.
+        // `PrivateKey`'s inner `KeypairData` zeroizes on drop, so the
+        // extra copy is safe — just two zeroed-at-end values instead
+        // of one.
+        let stored = {
+            let store = self.store.lock().await;
+            if store.is_locked() {
+                return Err(AgentError::Failure);
+            }
+            store.keys.get(&fp).ok_or(AgentError::Failure)?.clone()
+        };
 
         if stored.confirm {
-            // v0.6 does not implement interactive confirmation — the
-            // daemon would need a side-channel to the user. Reject
-            // rather than sign silently.
-            log::warn!(
-                "gitway-agent: sign request for confirm-required key {fp} rejected — \
-                 interactive confirmation not yet implemented"
-            );
-            return Err(AgentError::Failure);
+            let prompt = format!("Allow use of SSH key {fp} ({})?", stored.key.comment());
+            if !super::askpass::confirm(&prompt).await {
+                // askpass::confirm already logs the specific reason.
+                return Err(AgentError::Failure);
+            }
+            // Re-check the key is still present — it may have expired
+            // via the TTL sweeper or been removed by another client
+            // while the user was deciding.
+            let store = self.store.lock().await;
+            if !store.keys.contains_key(&fp) {
+                return Err(AgentError::Failure);
+            }
         }
 
         sign_with_key(&stored.key, &req.data, req.flags).map_err(|e| {

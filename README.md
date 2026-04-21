@@ -368,6 +368,28 @@ filter with read-only `$HOME`, private `/tmp`, and no new privileges —
 see the file header for the full hardening list and how to change
 `ExecStart=` if your `gitway` binary lives outside `/usr/local/bin`.
 
+### Confirm-on-use keys (`gitway-add -c`)
+
+Load a key with `-c` and the daemon asks for approval every time a
+client tries to sign with it:
+
+```sh
+export SSH_ASKPASS=/usr/bin/ssh-askpass    # or ksshaskpass, etc.
+gitway-add -c ~/.ssh/id_ed25519             # the -c matches ssh-add -c
+```
+
+The daemon invokes `$SSH_ASKPASS` with `SSH_ASKPASS_PROMPT=confirm`
+when a sign request arrives; exit `0` from that program approves the
+sign, anything else denies it. The same security rules as the
+client-side passphrase flow apply — `SSH_ASKPASS` must be an absolute
+path and must not be world-writable. If `SSH_ASKPASS` is unset or
+misconfigured, confirm-required sign requests fail safe (deny) rather
+than proceed unprompted. Running under systemd? `$SSH_ASKPASS` needs
+to be in the unit's `Environment=` or the user session env that
+started the unit — `systemctl --user import-environment SSH_ASKPASS
+DISPLAY WAYLAND_DISPLAY XAUTHORITY` after logging in does the right
+thing for GUI askpass binaries.
+
 ### Scope
 
 - **Fully supported**: Ed25519, ECDSA (P-256, P-384, P-521), and RSA

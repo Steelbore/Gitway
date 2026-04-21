@@ -86,3 +86,8 @@ nix.workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+# Used by `tests/agent_daemon.rs` to drive the daemon's sign + confirm
+# path directly, bypassing `gitway-add` (which has no CLI sign verb).
+[target.'cfg(unix)'.dev-dependencies]
+ssh-agent-lib = { workspace = true }

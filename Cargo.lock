@@ -1077,6 +1077,7 @@ dependencies = [
  "rpassword",
  "russh",
  "serde_json",
+ "ssh-agent-lib",
  "ssh-key",
  "tempfile",
  "tokio",

@@ -48,14 +48,25 @@ struct Daemon {
 
 impl Daemon {
     fn spawn(dir: &TempDir) -> Self {
+        Self::spawn_with_env(dir, &[])
+    }
+
+    /// Like [`spawn`], but lets the test inject extra environment
+    /// variables into the daemon process. Used by the confirm-flow
+    /// tests to pre-wire `SSH_ASKPASS` to a deterministic shell
+    /// script so the daemon's askpass path exercises the full
+    /// spawn + exit-status round-trip.
+    fn spawn_with_env(dir: &TempDir, env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let sock = dir.path().join("agent.sock");
-        let process = Command::new(gitway())
-            .args(["agent", "start", "-D", "-s", "-a"])
+        let mut cmd = Command::new(gitway());
+        cmd.args(["agent", "start", "-D", "-s", "-a"])
             .arg(&sock)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to spawn gitway agent start");
+            .stderr(Stdio::null());
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let process = cmd.spawn().expect("failed to spawn gitway agent start");
         let deadline = Instant::now() + Duration::from_secs(3);
         while !sock.exists() {
             assert!(
@@ -364,4 +375,150 @@ fn daemon_ttl_expires_identity() {
         "identity should have been evicted; list output was: {}",
         String::from_utf8_lossy(&empty.stdout)
     );
+}
+
+// ── Confirm flow (SSH_ASKPASS round-trip) ─────────────────────────────
+
+/// Creates an executable shell script in `dir` that exits with
+/// `exit_code`. Used as a scripted askpass to drive the daemon's
+/// confirm path deterministically.
+fn write_askpass_script(dir: &TempDir, name: &str, exit_code: i32) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let path = dir.path().join(name);
+    fs::write(&path, format!("#!/bin/sh\nexit {exit_code}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Issues an SSH agent sign request for `key` over `sock` using
+/// `ssh-agent-lib`'s blocking client, bypassing `gitway-add` (which
+/// has no CLI sign verb). Returns `Ok` on approval, `Err` on denial.
+fn agent_sign_via_wire(
+    sock: &std::path::Path,
+    key: &ssh_key::PrivateKey,
+) -> Result<ssh_key::Signature, ssh_agent_lib::error::AgentError> {
+    use ssh_agent_lib::blocking::Client;
+    use ssh_agent_lib::proto::SignRequest;
+    let stream = std::os::unix::net::UnixStream::connect(sock).expect("connect agent socket");
+    let mut client = Client::new(stream);
+    client.sign(SignRequest {
+        pubkey: key.public_key().key_data().clone(),
+        data: b"gitway-agent-confirm-test".to_vec(),
+        flags: 0,
+    })
+}
+
+#[test]
+fn daemon_confirm_allows_sign_when_askpass_approves() {
+    let dir = TempDir::new().unwrap();
+    let askpass = write_askpass_script(&dir, "yes.sh", 0);
+    let daemon = Daemon::spawn_with_env(&dir, &[("SSH_ASKPASS", askpass.as_os_str())]);
+
+    // Generate + load a key with the `--confirm` constraint.
+    let key_path = dir.path().join("k");
+    Command::new(gitway_keygen())
+        .args(["-t", "ed25519", "-f", key_path.to_str().unwrap(), "-N", ""])
+        .output()
+        .unwrap();
+    let add = Command::new(gitway_add())
+        .env("SSH_AUTH_SOCK", &daemon.sock)
+        .arg("-c")
+        .arg(&key_path)
+        .output()
+        .unwrap();
+    assert!(
+        add.status.success(),
+        "gitway-add -c failed: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    let key = ssh_key::PrivateKey::from_openssh(fs::read_to_string(&key_path).unwrap()).unwrap();
+    let sig = agent_sign_via_wire(&daemon.sock, &key)
+        .expect("sign request should have been approved via askpass");
+    assert_eq!(sig.algorithm(), ssh_key::Algorithm::Ed25519);
+}
+
+#[test]
+fn daemon_confirm_refuses_sign_when_askpass_denies() {
+    let dir = TempDir::new().unwrap();
+    let askpass = write_askpass_script(&dir, "no.sh", 1);
+    let daemon = Daemon::spawn_with_env(&dir, &[("SSH_ASKPASS", askpass.as_os_str())]);
+
+    let key_path = dir.path().join("k");
+    Command::new(gitway_keygen())
+        .args(["-t", "ed25519", "-f", key_path.to_str().unwrap(), "-N", ""])
+        .output()
+        .unwrap();
+    Command::new(gitway_add())
+        .env("SSH_AUTH_SOCK", &daemon.sock)
+        .arg("-c")
+        .arg(&key_path)
+        .output()
+        .unwrap();
+
+    let key = ssh_key::PrivateKey::from_openssh(fs::read_to_string(&key_path).unwrap()).unwrap();
+    let err = agent_sign_via_wire(&daemon.sock, &key)
+        .expect_err("denied askpass must translate to an agent sign failure");
+    // The daemon returns `SSH_AGENT_FAILURE` on the wire. The blocking
+    // client surfaces that as either `AgentError::Failure` or
+    // `Proto(UnexpectedResponse)` (since the client only pattern-matches
+    // on `SignResponse` and wraps everything else). Either shape is a
+    // legitimate sign denial — the important thing is it wasn't an
+    // `Ok(sig)`.
+    assert_sign_denied(&err);
+}
+
+#[test]
+fn daemon_confirm_refuses_sign_when_ssh_askpass_unset() {
+    // Fail-safe: no SSH_ASKPASS in the daemon's env at all. The daemon
+    // must reject the sign request rather than falling through to the
+    // signer as if the key were not `--confirm`-constrained.
+    let dir = TempDir::new().unwrap();
+    let sock = dir.path().join("agent.sock");
+    let mut cmd = Command::new(gitway());
+    cmd.args(["agent", "start", "-D", "-s", "-a"])
+        .arg(&sock)
+        .env_remove("SSH_ASKPASS")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let process = cmd.spawn().unwrap();
+    let daemon = Daemon { process, sock };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !daemon.sock.exists() {
+        assert!(Instant::now() < deadline, "socket never appeared");
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let key_path = dir.path().join("k");
+    Command::new(gitway_keygen())
+        .args(["-t", "ed25519", "-f", key_path.to_str().unwrap(), "-N", ""])
+        .output()
+        .unwrap();
+    Command::new(gitway_add())
+        .env("SSH_AUTH_SOCK", &daemon.sock)
+        .arg("-c")
+        .arg(&key_path)
+        .output()
+        .unwrap();
+
+    let key = ssh_key::PrivateKey::from_openssh(fs::read_to_string(&key_path).unwrap()).unwrap();
+    let err = agent_sign_via_wire(&daemon.sock, &key)
+        .expect_err("missing askpass must fail-safe to a sign denial");
+    assert_sign_denied(&err);
+}
+
+/// Shared assertion for confirm-path denial tests.
+///
+/// The daemon answers an unauthorized sign request with
+/// `SSH_AGENT_FAILURE`. `ssh-agent-lib`'s blocking client only
+/// unwraps `Response::SignResponse`, so it surfaces every other
+/// response — `Failure` included — as `Proto(UnexpectedResponse)`.
+/// Either shape counts as a legitimate denial; we just want to
+/// reject silent fall-throughs where the signer ran anyway.
+fn assert_sign_denied(err: &ssh_agent_lib::error::AgentError) {
+    use ssh_agent_lib::error::AgentError;
+    use ssh_agent_lib::proto::ProtoError;
+    let ok = matches!(err, AgentError::Failure)
+        || matches!(err, AgentError::Proto(ProtoError::UnexpectedResponse));
+    assert!(ok, "expected sign denial, got: {err:?}");
 }

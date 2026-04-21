@@ -21,7 +21,7 @@ rust-version = "1.85"
 # See: https://aws.github.io/aws-lc-rs/ and https://github.com/aws/aws-lc/blob/main/crypto/fipsmodule/PQREADME.md
 russh = { version = "0.59", default-features = false, features = ["flate2", "aws-lc-rs", "rsa"] }
 
-tokio     = { version = "1",    features = ["io-util", "io-std", "rt-multi-thread", "net", "sync", "macros", "signal", "time"] }
+tokio     = { version = "1",    features = ["io-util", "io-std", "rt-multi-thread", "net", "sync", "macros", "signal", "time", "process"] }
 thiserror = "2"
 log       = "0.4"
 dirs      = "6"

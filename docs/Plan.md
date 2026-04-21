@@ -95,7 +95,6 @@ driving via the transport's `#[tokio::main]`.
 Tracked as unchecked items under Milestone 13 in `docs/TODO.md`:
 
 - Windows named-pipe transport for client and daemon
-- Interactive `--confirm` flow (needs an askpass-style side channel)
 
 ## 6. Design decisions and rationale
 

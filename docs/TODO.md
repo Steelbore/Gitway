@@ -219,6 +219,7 @@ Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. C
 - [✓] ECDSA sign (P-256, P-384, P-521) — landed 2026-04-21 via `ssh-key`'s built-in `Signer<Signature>`.
 - [✓] RSA sign (`rsa::pkcs1v15::SigningKey` driven by the client's `rsa-sha2-256` / `rsa-sha2-512` flag) — landed 2026-04-22.
 - [✓] Background daemonization via `Command::spawn` + in-child `setsid(2)` — landed 2026-04-22. No `unsafe` (no `pre_exec`); detached children get ppid=1 and their own session.
+- [✓] Interactive `--confirm` flow — landed 2026-04-22. New `gitway_lib::agent::askpass` module drives a user-chosen askpass binary via `$SSH_ASKPASS` + `SSH_ASKPASS_PROMPT=confirm`, with a 60s timeout, absolute-path + non-world-writable security gates matching the client-side `try_askpass`, and fail-safe denial on any error. The daemon releases the keystore lock around the askpass round-trip so other clients are not blocked. Tests: 5 unit (approve / deny / relative-path rejection / world-writable rejection / missing-file error) + 3 end-to-end (full agent-protocol sign request with a scripted askpass script: approve, deny, and `SSH_ASKPASS` unset).
 - [ ] Windows named-pipe transport for both daemon and client.
-- [ ] Interactive `--confirm` flow (needs an SSH_ASKPASS-style side channel).
+- [✓] Interactive `--confirm` flow via `$SSH_ASKPASS` — landed 2026-04-22 at `gitway_lib::agent::askpass`.
 - [✓] `systemd` user unit for one-command install (`systemctl --user enable gitway-agent`) — landed 2026-04-22 at `packaging/systemd/gitway-agent.service`.

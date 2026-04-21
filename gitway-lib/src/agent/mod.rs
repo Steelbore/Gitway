@@ -9,5 +9,6 @@
 //! Unix-only for Phase 2 — Windows named-pipe transport is deferred to the
 //! daemon work.
 
+pub mod askpass;
 pub mod client;
 pub mod daemon;
