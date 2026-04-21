@@ -1,149 +1,152 @@
-# **Gitway — Project Plan**
-
-A Git/GitHub-dedicated SSH client written in Rust, built on top of `russh` and tailored to GitHub's SSH protocol requirements.
-
-**Project Lead:** [Mohamed Hammad](mailto:MJ@S3cure.me)  
-**Target Date:** Apr 3, 2026
-
-# **1\. Project Goals and Scope**
-
-Gitway is a standalone binary (and optionally a library) that replaces `ssh` for Git-over-SSH operations against GitHub. Its specific responsibilities are:
-
-* **Authentication:** Connect to `github.com:22` (or port 443 fallback) using an Ed25519 or RSA keypair, with optional OpenSSH certificate support.  
-* **Protocol Forwarding:** Forward the Git smart-HTTP protocol over the SSH channel (i.e., execute `git-upload-pack`, `git-receive-pack`, or `git-upload-archive` on the remote side).  
-* **Drop-in Compatibility:** Act as a drop-in for `GIT_SSH` or `core.sshCommand`, allowing standard Git tooling to delegate transport to it.  
-* **Security Management:** Manage key discovery, host-key verification (pinned to GitHub's known fingerprint), and optional `ssh-agent` integration.
-
-**Out of scope for v1.0:** Server mode, SFTP, interactive PTY sessions, and tunneling.
-
-# **2\. Repository Layout**
-
-t  
-gitway/  
-├── Cargo.toml  
-├── src/  
-│   ├── main.rs          \# CLI entry point  
-│   ├── cli.rs           \# Argument parsing (clap)  
-│   ├── session.rs       \# russh Session wrapper (core SSH logic)  
-│   ├── auth.rs          \# Key loading, agent integration  
-│   ├── hostkey.rs       \# Host-key verification against GitHub's pins  
-│   ├── git\_channel.rs   \# Git exec-channel: bidirectional stdio relay  
-│   └── error.rs         \# Unified error type (thiserror)  
-├── tests/  
-│   └── integration.rs   \# End-to-end test against github.com  
-└── examples/  
-└── test\_connection.rs \# Replicates `ssh -T git@github.com`
-
-\#\# 3\. Crate Dependencies
-
-| Dependency | Version | Features |
-
-| :--- | :--- | :--- |
-
-| \`russh\` | 0.46 | \`aws-lc-rs\` |
-
-| \`russh-keys\` | 0.46 | \- |
-
-| \`tokio\` | 1 | \`full\` |
-
-| \`anyhow\` | 1 | \- |
-
-| \`thiserror\` | 1 | \- |
-
-| \`clap\` | 4 | \`derive\` |
-
-| \`shell-escape\` | 0.1 | \- |
-
-| \`log\` | 0.4 | \- |
-
-| \`env\_logger\` | 0.11 | \- |
-
-Choose exactly one crypto backend (\`aws-lc-rs\` recommended; \`ring\` works equally well).
-
-\#\# 4\. Module Design
-
-\#\#\# 4.1 cli.rs — Argument Parsing
-
-Model the CLI so that Git can invoke it as a replacement for \`ssh\`:
-
-\`gitway \[OPTIONS\] \<host\> \<git-command\>\`
-
-\*   \`-i, \--identity \<PATH\>\`: Private key file (default: \`\~/.ssh/id\_ed25519\`)
-
-\*   \`-p, \--port \<PORT\>\`: SSH port (default: 22\)
-
-\*   \`-u, \--user \<USER\>\`: Remote username (default: git)
-
-\*   \`-o, \--openssh-cert \<PATH\>\`: Optional OpenSSH certificate
-
-\*   \`-T, \--test\`: Test mode: print GitHub's welcome banner then exit
-
-\*   \`-v, \--verbose\`: Enable debug logging
-
-\#\#\# 4.2 hostkey.rs — Host-Key Verification
-
-GitHub publishes its SSH public key fingerprints in its documentation. Gitway hard-codes GitHub's Ed25519 fingerprint: \`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU\`.
-
-\*\*Verification Steps:\*\*
-
-1\.  Compute the SHA-256 fingerprint of the received public key.
-
-2\.  Compare it against the embedded list (Ed25519 primary \+ RSA fallback).
-
-3\.  Return \`Ok(true)\` only on a match; otherwise return a descriptive error.
-
-\#\#\# 4.3 auth.rs — Key Loading and Agent Integration
-
-Key resolution order (mirrors OpenSSH behavior):
-
-1\.  Explicit \`--identity\` flag path.
-
-2\.  \`GIT\_SSH\_COMMAND\` environment overrides (parsed for \`-i\`).
-
-3\.  \`\~/.ssh/id\_ed25519\`, \`\~/.ssh/id\_rsa\` in that order.
-
-4\.  If none found and \`SSH\_AUTH\_SOCK\` is set, delegate to the \`ssh-agent\`.
-
-\#\#\# 4.4 session.rs — russh Session Wrapper
-
-This is the heart of the project. It handles the lifecycle of the connection, including the \`client::Handler\` implementation for server key checks and the orchestration of the connection, authentication, and command execution.
-
-\#\#\# 4.5 git\_channel.rs — Bidirectional Git Relay
-
-Git's transport protocol requires a bidirectional pipe. Gitway extends basic execution to a full relay:
-
-\*   \`stdin\` → \`channel.make\_writer()\` (async copy)
-
-\*   \`channel data events\` → process \`stdout\`
-
-\*   \`channel extended data\` → process \`stderr\`
-
-\*   \`ExitStatus event\` → capture exit code
-
-\#\# 5\. Implementation Phases
-
-1\.  \*\*Phase 1: Skeleton and Connection Test:\*\* Set up workspace, implement CLI and basic session connection. Implement the \`--test\` flag to verify GitHub's welcome banner.
-
-2\.  \*\*Phase 2: Full Authentication:\*\* Implement the key-discovery chain, passphrase prompting, and \`ssh-agent\` fallback.
-
-3\.  \*\*Phase 3: Git Channel Relay:\*\* Implement bidirectional relaying for \`stdin\`, \`stdout\`, and \`stderr\`. Verify via \`git clone\` using \`GIT\_SSH\`.
-
-4\.  \*\*Phase 4: Drop-in Compatibility:\*\* Ensure argument shapes match what Git expects. Add an \`--install\` subcommand to update \`.gitconfig\`.
-
-5\.  \*\*Phase 5: Hardening and Packaging:\*\* Implement strict error handling (\`clippy\` enforcement), CI pipelines for cross-platform builds, and publish to crates.io.
-
-\#\# 6\. Key Design Decisions and Rationale
-
-\*   \*\*Why russh?\*\* It is pure-Rust, async-native (Tokio), and requires no C FFI. It supports all modern key exchanges required by GitHub.
-
-\*   \*\*Why pin GitHub's host key?\*\* To provide "fail-fast" security. A dedicated tool should prevent MITM attacks by default rather than relying on manual "trust on first use" prompts.
-
-\*   \*\*Crypto Backend:\*\* \`aws-lc-rs\` is preferred for its broader curve support and FIPS validation suitability.
-
-\#\# 7\. Testing Strategy
-
-\*   \*\*Unit Tests:\*\* Cover key loading, fingerprint comparison, and CLI parsing.
-
-\*   \*\*Integration Tests:\*\* Gated by \`GITSSH\_INTEGRATION\_KEY\`, these connect to \`github.com\` to perform actual handshakes.
-
-\*   \*\*Mocking:\*\* Use a local OpenSSH server for hermetic CI testing to simulate remote responses without external dependencies.  
+# Gitway — Project Plan
+
+**Maintainer:** [Mohamed Hammad](mailto:MJ@S3cure.me)
+**Status:** v0.6.0 shipped (2026-04-21). OpenSSH-replacement plan complete; v0.6.x follow-ups in flight.
+
+---
+
+## 1. What Gitway is
+
+Gitway is a purpose-built SSH toolkit for Git workflows, written in Rust. It
+started as a drop-in transport replacement for `ssh` and has grown into a
+complete OpenSSH alternative for the Git use case: generate keys, SSH-sign
+commits, manage agent identities, and run the agent itself — all from Gitway's
+own binaries, with no `openssh-clients` on the box.
+
+The project ships three executables from one workspace:
+
+| Binary          | Purpose                                                                 |
+| --------------- | ----------------------------------------------------------------------- |
+| `gitway`        | Transport (`core.sshCommand`) + native `keygen`/`sign`/`agent` verbs    |
+| `gitway-keygen` | ssh-keygen-compatible shim for `gpg.ssh.program`                        |
+| `gitway-add`    | ssh-add-compatible shim for tools that shell out by name (Unix-only)    |
+
+Plus a `gitway-lib` library crate exposing the same capabilities
+programmatically.
+
+## 2. Architecture
+
+Single-workspace Rust project, pure Rust end to end (`#![forbid(unsafe_code)]`
+everywhere), no C runtime at link time.
+
+```
+gitway-lib/
+  src/
+    session.rs        russh-backed transport
+    auth.rs           key discovery + agent-auth (russh side)
+    hostkey.rs        pinned fingerprints for GitHub / GitLab / Codeberg
+    relay.rs          bidirectional stdin/stdout/stderr relay
+    config.rs         transport config builder
+    error.rs          unified error + SFRS exit codes
+    keygen.rs         Ed25519/ECDSA/RSA keygen
+    sshsig.rs         SSHSIG sign/verify/check-novalidate/find-principals
+    allowed_signers.rs   git allowed_signers parser
+    agent/
+      client.rs       blocking SSH-agent client
+      daemon.rs       async SSH-agent server (Session trait impl)
+
+gitway-cli/
+  src/
+    main.rs           #[tokio::main] entry
+    cli.rs            clap definitions
+    keygen.rs         `gitway keygen ...` dispatcher
+    sign.rs           `gitway sign` dispatcher
+    agent.rs          `gitway agent ...` dispatcher (Unix)
+    bin/
+      gitway-keygen.rs    ssh-keygen shim
+      gitway-add.rs       ssh-add shim (Unix)
+  tests/
+    ssh_keygen_compat.rs   hermetic + opt-in OpenSSH cross-compat
+    agent_client.rs        opt-in against OpenSSH's ssh-agent
+    agent_daemon.rs        hermetic daemon lifecycle + TTL
+
+gitway-lib/tests/
+  test_connection.rs       gated real-network tests
+  test_clone.rs            end-to-end git clone
+```
+
+Detailed functional requirements live in [`docs/PRD.md`](PRD.md); milestone
+checkboxes live in [`docs/TODO.md`](TODO.md).
+
+## 3. Dependency stack
+
+Transport path keeps [`russh`](https://github.com/warp-tech/russh) (aws-lc-rs
+backend, for PQ-ready crypto). The key/sign/agent path layers RustCrypto's
+[`ssh-key`](https://github.com/RustCrypto/SSH) 0.6 (with the `sshsig` module)
+and wiktor-k's [`ssh-agent-lib`](https://github.com/wiktor-k/ssh-agent-lib) 0.5.2
+on top. Both stacks coexist: do not share `PrivateKey` values across the
+boundary.
+
+Client-only operations use the blocking ssh-agent-lib API to avoid infecting
+them with tokio; the daemon uses the async side, which tokio is already
+driving via the transport's `#[tokio::main]`.
+
+## 4. Delivery history
+
+| Version | Delivered  | Scope                                                                  |
+| ------- | ---------- | ---------------------------------------------------------------------- |
+| v0.1–v0.3 | Mar–Apr 2026 | Transport, host-key pinning, auth, relay, multi-provider, crates.io publish, PQC backend. |
+| v0.4.0  | 2026-04-21 | §5.7 Phase 1 — `gitway keygen`, `gitway sign`, `gitway-keygen` shim. Validated against GitHub (`verified: true`). |
+| v0.5.0  | 2026-04-21 | §5.7 Phase 2 — `gitway agent add/list/remove/lock/unlock` + `gitway-add` shim. |
+| v0.6.0  | 2026-04-21 | §5.7 Phase 3 — `gitway agent start/stop` daemon with Ed25519 sign, TTL eviction, SIGTERM shutdown. Real OpenSSH verifies Gitway-produced signatures. |
+
+## 5. v0.6.x follow-up work
+
+Tracked as unchecked items under Milestone 13 in `docs/TODO.md`:
+
+- ECDSA P-256 / P-384 / P-521 daemon sign paths
+- RSA daemon sign path (with `rsa-sha2-256` / `rsa-sha2-512` flag honoring)
+- Background double-fork daemonization (currently foreground-only via `-D`)
+- Windows named-pipe transport for client and daemon
+- Interactive `--confirm` flow (needs an askpass-style side channel)
+- `packaging/systemd/gitway-agent.service` user unit
+
+## 6. Design decisions and rationale
+
+- **russh + aws-lc-rs** — russh is the only well-maintained pure-Rust SSH
+  transport library. aws-lc-rs provides post-quantum primitives that `ring`
+  lacks; chosen for forward compatibility.
+- **Pinned host keys, not TOFU** — a Git-only client has no excuse for a
+  Trust-On-First-Use prompt. Gitway embeds SHA-256 fingerprints for GitHub,
+  GitLab, and Codeberg; GHE hosts go in `~/.config/gitway/known_hosts`.
+- **Two crypto stacks** — transport uses russh's aws-lc-rs; key/sign uses
+  RustCrypto (`ed25519-dalek`, `rsa`, `p256/384/521`). russh's signer traits
+  don't expose the SSHSIG blob format ergonomically. Accepted trade-off:
+  slightly larger binary, one invariant (never cross the boundary).
+- **Shim binaries (`gitway-keygen`, `gitway-add`)** — cleanest way to satisfy
+  tools that shell out by name. Hand-rolled argv parsers (not clap) keep the
+  stdout byte-compatible with OpenSSH so git's output parser is happy.
+- **Blocking agent client, async agent daemon** — client-side sync code is
+  simpler and avoids pulling tokio into `gitway-add`. Daemon side is
+  inherently async; ssh-agent-lib's `listen` spawns a task per connection.
+- **Ed25519-first for daemon signing** — it's the dominant algorithm for git
+  SSH signing. ECDSA and RSA sign paths are stubbed in v0.6 and filled in
+  across v0.6.x.
+
+## 7. Testing strategy
+
+Four layers, each with a clear default-on / opt-in split:
+
+1. **Unit tests (always on).** Inline in every module; 44 in `gitway-lib`
+   alone as of v0.6.0. Run: `cargo test --workspace`.
+2. **Hermetic integration (always on).** `ssh_keygen_compat.rs` and
+   `agent_daemon.rs` spawn Gitway binaries as subprocesses and drive them
+   through their full lifecycles — no OpenSSH required.
+3. **OpenSSH cross-compat (opt-in, `#[ignore]`).** Verifies byte-level
+   compatibility against real `ssh-keygen` and `ssh-agent`. Run:
+   `cargo test -- --ignored`.
+4. **Real-network integration (opt-in, env-gated).** Gated on
+   `GITWAY_INTEGRATION_TESTS=1`; hits `github.com` for transport and
+   host-key verification.
+
+CI matrix runs layers 1 and 2 on Linux, macOS, and Windows, plus MSRV
+(1.85), clippy with all targets, rustfmt, and a 10 MB binary-size guard.
+
+## 8. Release process
+
+Tag `v{major}.{minor}.{patch}` on `main` from a green CI run; the release
+workflow builds archives for Linux (musl), macOS (arm64), and Windows (MSVC),
+plus `.deb` and `.rpm`, uploads them to a **draft** GitHub release, and
+publishes `gitway-lib` then `gitway` to crates.io. Tags are SSH-signed with
+the maintainer's key; every published commit carries a GitHub "Verified"
+badge.
