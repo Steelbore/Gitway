@@ -94,7 +94,6 @@ driving via the transport's `#[tokio::main]`.
 
 Tracked as unchecked items under Milestone 13 in `docs/TODO.md`:
 
-- Background double-fork daemonization (currently foreground-only via `-D`)
 - Windows named-pipe transport for client and daemon
 - Interactive `--confirm` flow (needs an askpass-style side channel)
 - `packaging/systemd/gitway-agent.service` user unit

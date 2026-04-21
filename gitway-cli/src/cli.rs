@@ -339,9 +339,10 @@ pub struct AgentStartArgs {
     pub pid_file: Option<PathBuf>,
 
     /// Do not daemonize — stay in the foreground, keep stdout/stderr
-    /// attached. Matches `ssh-agent -D`, which is the only mode
-    /// supported in v0.6; proper double-fork daemonization lands in a
-    /// follow-up (v0.6.x).
+    /// attached. Matches `ssh-agent -D`. Without this flag the daemon
+    /// detaches into the background via `setsid(2)` and prints the
+    /// `SSH_AUTH_SOCK` / `SSH_AGENT_PID` eval lines for the shell to
+    /// source (just like `ssh-agent`).
     #[arg(short = 'D', long = "foreground", action = ArgAction::SetTrue)]
     pub foreground: bool,
 

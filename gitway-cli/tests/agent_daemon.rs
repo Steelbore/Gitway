@@ -152,6 +152,184 @@ fn daemon_lifecycle_add_list_remove() {
 }
 
 #[test]
+fn daemon_background_mode_detaches_and_advertises_pid() {
+    // Background mode (no `-D`): `gitway agent start` respawns itself
+    // as a detached child, prints eval lines to stdout, and exits. The
+    // child is adopted by `init`, runs in its own session, and keeps
+    // serving requests.
+    let dir = TempDir::new().unwrap();
+    let sock = dir.path().join("bg-agent.sock");
+    let pid_file = dir.path().join("bg-agent.pid");
+
+    let output = Command::new(gitway())
+        .args(["agent", "start", "-s", "-a"])
+        .arg(&sock)
+        .arg("--pid-file")
+        .arg(&pid_file)
+        .output()
+        .expect("spawn gitway agent start (background)");
+    assert!(
+        output.status.success(),
+        "background start failed: stderr={:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Parse the daemon PID out of the eval lines (Bourne shell format).
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let daemon_pid = parse_ssh_agent_pid(&stdout)
+        .unwrap_or_else(|| panic!("no SSH_AGENT_PID in eval output:\n{stdout}"));
+
+    // Track cleanup: always kill the daemon by PID so a failed assertion
+    // doesn't leak a background process.
+    let _guard = Kill(daemon_pid, sock.clone());
+
+    // Socket must already exist — the parent blocks until bind completes.
+    assert!(
+        sock.exists(),
+        "socket {} not present after background start returned",
+        sock.display()
+    );
+    // Pid file wired up via `--pid-file`.
+    assert!(
+        pid_file.exists(),
+        "pid file {} not written",
+        pid_file.display()
+    );
+    let pid_file_contents: i32 = fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .expect("pid file contains valid integer");
+    assert_eq!(pid_file_contents, daemon_pid);
+
+    // The detached daemon must not be a descendant of this test process.
+    // Assert its ppid is 1 (reparented to init) — proves setsid + detach
+    // actually severed the parent link.
+    let ppid = read_ppid(daemon_pid).expect("read /proc ppid");
+    assert_eq!(
+        ppid, 1,
+        "background agent pid {daemon_pid} was not reparented to init (ppid={ppid})"
+    );
+
+    // Sanity: add + list works through it, proving the socket and the
+    // post-setsid tokio runtime are both healthy.
+    let key_path = dir.path().join("k");
+    Command::new(gitway_keygen())
+        .args(["-t", "ed25519", "-f", key_path.to_str().unwrap(), "-N", ""])
+        .output()
+        .unwrap();
+    let add = Command::new(gitway_add())
+        .env("SSH_AUTH_SOCK", &sock)
+        .arg(&key_path)
+        .output()
+        .unwrap();
+    assert!(add.status.success());
+    let list = Command::new(gitway_add())
+        .env("SSH_AUTH_SOCK", &sock)
+        .arg("-l")
+        .output()
+        .unwrap();
+    assert!(list.status.success());
+
+    // Clean shutdown via `gitway agent stop` (reads the pid file).
+    let stop = Command::new(gitway())
+        .args(["agent", "stop", "--pid-file"])
+        .arg(&pid_file)
+        .env_remove("SSH_AGENT_PID")
+        .output()
+        .unwrap();
+    assert!(
+        stop.status.success(),
+        "stop failed: stderr={:?}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while sock.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "socket {} not unlinked after stop",
+            sock.display()
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn daemon_background_mode_rejects_existing_socket() {
+    let dir = TempDir::new().unwrap();
+    let sock = dir.path().join("taken.sock");
+    // Create a dummy file where the socket would go — parent should
+    // detect the collision and bail out before respawning.
+    fs::write(&sock, b"").unwrap();
+
+    let output = Command::new(gitway())
+        .args(["agent", "start", "-s", "-a"])
+        .arg(&sock)
+        .output()
+        .expect("spawn gitway agent start");
+    assert!(
+        !output.status.success(),
+        "expected failure, got success; stdout={:?}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("already exists"),
+        "expected collision error, got: {stderr}"
+    );
+}
+
+/// Drop guard that kills the background daemon by PID even when the
+/// test fails partway through — a leaked detached process would
+/// otherwise outlive `cargo test`.
+struct Kill(i32, PathBuf);
+impl Drop for Kill {
+    fn drop(&mut self) {
+        let _ = kill(Pid::from_raw(self.0), Signal::SIGTERM);
+        let _ = fs::remove_file(&self.1);
+    }
+}
+
+fn parse_ssh_agent_pid(eval_lines: &str) -> Option<i32> {
+    // Matches `SSH_AGENT_PID=12345;` from the Bourne eval output.
+    for line in eval_lines.lines() {
+        let Some(rest) = line.trim().strip_prefix("SSH_AGENT_PID=") else {
+            continue;
+        };
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        return digits.parse().ok();
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn read_ppid(pid: i32) -> Option<i32> {
+    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("PPid:") {
+            return rest.trim().parse().ok();
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_ppid(pid: i32) -> Option<i32> {
+    // `ps -o ppid= -p <pid>` works on macOS; CI matrix is Linux and
+    // macOS only, Windows is gated out by `#![cfg(unix)]`.
+    let out = Command::new("ps")
+        .args(["-o", "ppid=", "-p"])
+        .arg(pid.to_string())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+#[test]
 fn daemon_ttl_expires_identity() {
     let dir = TempDir::new().unwrap();
     let daemon = Daemon::spawn(&dir);

@@ -304,7 +304,7 @@ flags most-commonly used: `-l`, `-L`, `-d <file>`, `-D`, `-x`, `-X`,
 `add`.
 
 ```sh
-eval $(ssh-agent -s)       # or `eval $(gitway agent start -D -s)` for the Gitway-native daemon
+eval $(ssh-agent -s)       # or `eval $(gitway agent start -s)` for the Gitway-native daemon
 gitway-add ~/.ssh/id_ed25519
 gitway-add -l
 ```
@@ -321,19 +321,21 @@ Windows named-pipe transport is a follow-up within the v0.6.x series.
 ### Starting the daemon
 
 ```sh
-# Launch it in the foreground and export its socket + PID into the shell:
-eval $(gitway agent start -D -s)
+# Detach into the background, export the socket + PID into the shell,
+# and return control to the prompt — mirrors `ssh-agent` exactly.
+eval $(gitway agent start -s)
 
 # Now any client — gitway-add, ssh-add, ssh-keygen -Y sign — uses it:
 gitway-add ~/.ssh/id_ed25519
 ssh-add -l                    # OpenSSH's ssh-add talks to the Gitway agent
 ```
 
-`-D` runs in the foreground (background daemonization lands in a
-follow-up patch; for now, background it with `&`, `setsid nohup`, or a
-systemd user unit). `-s` emits Bourne-shell `export` lines; `-c`
-emits csh/fish `setenv` lines. With neither flag, Gitway picks based
-on `$SHELL`.
+Without `-D`, `gitway agent start` respawns itself as a fully detached
+session leader (new session via `setsid(2)`, ppid reparented to init,
+stdio redirected to `/dev/null`). Use `-D` instead to stay in the
+foreground — handy for debugging, systemd user units, or inline
+`strace`. `-s` emits Bourne-shell `export` lines; `-c` emits csh/fish
+`setenv` lines. With neither flag, Gitway picks based on `$SHELL`.
 
 `-t <seconds>` sets a default lifetime — after that duration, the agent
 silently evicts the key. Individual `gitway agent add -t <sec>`

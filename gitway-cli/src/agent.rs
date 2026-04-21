@@ -309,14 +309,33 @@ fn hashkind_to_sshkey(k: HashKind) -> HashAlg {
 
 // ── start / stop ──────────────────────────────────────────────────────────────
 
+/// Marker the parent sets in the detached child's environment so the
+/// child knows to call `setsid(2)` + close stdio before running the
+/// accept loop. Internal — not a user-facing knob.
+const DAEMONIZED_MARKER: &str = "GITWAY_AGENT_DAEMONIZED";
+
 async fn run_start(args: &AgentStartArgs, _mode: OutputMode) -> Result<u32, GitwayError> {
-    if !args.foreground {
-        return Err(GitwayError::invalid_config(
-            "v0.6 only supports foreground mode (`-D`); background \
-             daemonization lands in a follow-up. Run `gitway agent \
-             start -D` and background it with your shell or systemd.",
-        ));
+    let is_daemonized_child = std::env::var_os(DAEMONIZED_MARKER).is_some();
+
+    // Two entry points meet here:
+    //   1. `-D`: user wants a plain foreground daemon (systemd unit,
+    //      debugging, Ctrl-C friendly).
+    //   2. the detached child we respawned from `run_background_start`:
+    //      inherits the marker env var and finishes the detach itself.
+    // Everything else (no `-D`, no marker) respawns below.
+    if args.foreground || is_daemonized_child {
+        if is_daemonized_child {
+            finalize_detach();
+        }
+        return run_daemon_loop(args).await;
     }
+
+    run_background_start(args)
+}
+
+/// Runs the in-process agent accept loop. Called both from `-D`
+/// foreground invocations and from the post-`setsid` child we respawned.
+async fn run_daemon_loop(args: &AgentStartArgs) -> Result<u32, GitwayError> {
     let socket_path = args.sock.clone().unwrap_or_else(default_socket_path);
     let pid_file = args
         .pid_file
@@ -329,13 +348,148 @@ async fn run_start(args: &AgentStartArgs, _mode: OutputMode) -> Result<u32, Gitw
         default_ttl,
     };
 
-    emit_eval(&socket_path, std::process::id(), args.sh, args.csh);
+    // When the user wants a foreground daemon, `-D`, we also need to
+    // print the eval lines here so they can `eval $(gitway agent start
+    // -D -s)` inside a shell that will then keep running. The background
+    // path prints the eval lines from the parent before exiting and
+    // leaves stdout silent inside the detached child.
+    if std::env::var_os(DAEMONIZED_MARKER).is_none() {
+        emit_eval(&socket_path, std::process::id(), args.sh, args.csh);
+    }
 
     // Drive the daemon on the outer `#[tokio::main]` runtime — nesting
     // `runtime::block_on` inside an already-running runtime panics, so
     // `.await`-ing here is the only correct option.
     daemon::run(cfg).await?;
     Ok(0)
+}
+
+/// Background-mode entry: respawn ourselves as a detached child with
+/// `GITWAY_AGENT_DAEMONIZED=1` and `-D`, wait for the socket to appear,
+/// then print the eval lines and exit so the calling shell can source
+/// them.
+///
+/// # Detachment model
+///
+/// `std::process::Command::spawn` creates a child that inherits our
+/// session but has stdio pointed at `/dev/null`. The child's `main`
+/// detects `DAEMONIZED_MARKER`, calls `setsid(2)` to become a session
+/// leader of a brand-new session (which has no controlling TTY), then
+/// proceeds into the agent loop. Avoiding `pre_exec` keeps the entire
+/// flow free of `unsafe`.
+fn run_background_start(args: &AgentStartArgs) -> Result<u32, GitwayError> {
+    let raw_socket_path = args.sock.clone().unwrap_or_else(default_socket_path);
+    // The child calls `chdir("/")` after `setsid`, so any relative path
+    // we hand it would resolve under `/`. Canonicalize to an absolute
+    // path before spawning. `absolute_path` avoids `std::fs::canonicalize`
+    // which requires the target to already exist.
+    let socket_path = absolute_path(&raw_socket_path)?;
+    let pid_file = args
+        .pid_file
+        .as_ref()
+        .map(|p| absolute_path(p))
+        .transpose()?;
+
+    // Fail fast if the path already points at a live socket — this is a
+    // normal user mistake ("I already sourced gitway once in this
+    // shell"), and the child would otherwise clobber it.
+    if socket_path.exists() {
+        return Err(GitwayError::invalid_config(format!(
+            "socket {} already exists; another agent may be running. \
+             Run `gitway agent stop` first, or pass a different `-a <PATH>`.",
+            socket_path.display()
+        )));
+    }
+
+    let exe = std::env::current_exe().map_err(|e| {
+        GitwayError::invalid_config(format!("cannot locate the gitway binary for re-exec: {e}"))
+    })?;
+
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.arg("agent")
+        .arg("start")
+        .arg("-D")
+        .arg("-a")
+        .arg(socket_path.as_os_str());
+    if let Some(ttl) = args.default_ttl {
+        cmd.arg("-t").arg(ttl.to_string());
+    }
+    if let Some(ref pid_path) = pid_file {
+        cmd.arg("--pid-file").arg(pid_path.as_os_str());
+    }
+    cmd.env(DAEMONIZED_MARKER, "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+
+    let child = cmd.spawn().map_err(|e| {
+        GitwayError::invalid_config(format!("failed to spawn background agent: {e}"))
+    })?;
+    let pid = child.id();
+    // Let the handle drop; Unix drop does not reap, the daemon keeps
+    // running once the grandparent (this process) exits and `init`
+    // adopts it.
+    drop(child);
+
+    // Poll for socket readiness — the child binds it very early in
+    // `daemon::run`. 5s is generous; bind typically completes in a few
+    // ms. If it never appears the child died before binding, usually
+    // because the runtime dir is wrong or the socket path is already
+    // taken by another process we lost the race to above.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if socket_path.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if !socket_path.exists() {
+        return Err(GitwayError::invalid_config(format!(
+            "background agent did not bind {} within 5s — try \
+             `gitway agent start -D` to see the underlying error",
+            socket_path.display()
+        )));
+    }
+
+    emit_eval(&socket_path, pid, args.sh, args.csh);
+    Ok(0)
+}
+
+/// Resolves `path` to an absolute path without requiring the target to
+/// exist. Needed because the detached child calls `chdir("/")`, so any
+/// relative path passed from the parent's shell cwd would otherwise
+/// resolve under `/` in the child.
+fn absolute_path(path: &Path) -> Result<std::path::PathBuf, GitwayError> {
+    if path.is_absolute() {
+        return Ok(path.to_owned());
+    }
+    let cwd = std::env::current_dir().map_err(|e| {
+        GitwayError::invalid_config(format!(
+            "cannot resolve {} to an absolute path: {e}",
+            path.display()
+        ))
+    })?;
+    Ok(cwd.join(path))
+}
+
+/// Called from inside the detached child before the accept loop starts.
+///
+/// Moves us into a brand-new session with `setsid(2)` (severing the
+/// parent's controlling TTY), changes cwd to `/` so we don't pin a
+/// mount point, and restricts the file-mode creation mask to 0o077 so
+/// the pid file and any stray writes can't end up world-readable.
+///
+/// All three calls are best-effort: `setsid(2)` returns EPERM if we
+/// are somehow already a process-group leader (shouldn't happen under
+/// `Command::spawn`, but treating it as fatal would wedge the daemon
+/// for no benefit — binding the socket is what matters), and `chdir`
+/// failing only means logs attach to the caller's cwd.
+fn finalize_detach() {
+    use nix::sys::stat::{umask, Mode};
+    use nix::unistd::{chdir, setsid};
+    let _ = setsid();
+    let _ = chdir("/");
+    let _old = umask(Mode::from_bits_truncate(0o077));
 }
 
 fn run_stop(args: &AgentStopArgs, mode: OutputMode) -> Result<u32, GitwayError> {

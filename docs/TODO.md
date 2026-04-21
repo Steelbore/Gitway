@@ -185,6 +185,7 @@ Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. C
 - [✓] Per-key TTL via a 1-second tokio `interval` sweep, plus `AddIdentityConstrained { Lifetime }` honored per add.
 - [✓] SIGTERM/SIGINT handlers via `tokio::signal`: unlink socket, remove pid file, zero keys via `Drop`.
 - [✓] Unix socket permissions: 0600 on the socket inode. Parent directory defaults to `$XDG_RUNTIME_DIR` (already user-private) or a 0700 `$TMPDIR/gitway-agent-<user>/` fallback.
+- [✓] Background double-fork daemonization landed 2026-04-22: `gitway agent start` without `-D` respawns itself as a detached child (Command::spawn + setsid in the child via `GITWAY_AGENT_DAEMONIZED` env marker), prints eval lines with the child's PID to stdout, then exits. Avoids `unsafe` entirely — no `pre_exec`. Test coverage: `daemon_background_mode_detaches_and_advertises_pid` asserts ppid=1 after detach; `daemon_background_mode_rejects_existing_socket` catches the "already running" race.
 - [ ] Windows named-pipe transport — deferred. On Windows `gitway agent start` returns a clear error (v0.6.x follow-up).
 
 ### Sign algorithm coverage
@@ -217,7 +218,7 @@ Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. C
 
 - [✓] ECDSA sign (P-256, P-384, P-521) — landed 2026-04-21 via `ssh-key`'s built-in `Signer<Signature>`.
 - [✓] RSA sign (`rsa::pkcs1v15::SigningKey` driven by the client's `rsa-sha2-256` / `rsa-sha2-512` flag) — landed 2026-04-22.
-- [ ] Double-fork + setsid background daemonization.
+- [✓] Background daemonization via `Command::spawn` + in-child `setsid(2)` — landed 2026-04-22. No `unsafe` (no `pre_exec`); detached children get ppid=1 and their own session.
 - [ ] Windows named-pipe transport for both daemon and client.
 - [ ] Interactive `--confirm` flow (needs an SSH_ASKPASS-style side channel).
 - [ ] `systemd` user unit for one-command install (`systemctl --user enable gitway-agent`).
