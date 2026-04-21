@@ -2,6 +2,34 @@
 
 This directory contains packaging manifests for Gitway across Linux distributions.
 
+## systemd user unit
+
+`systemd/gitway-agent.service` runs the Gitway SSH agent as a user
+service. It uses foreground mode (`-D`) so systemd manages the
+process directly; Gitway's own background double-fork path is
+deliberately unused when running under systemd.
+
+```sh
+# 1) Install the unit
+mkdir -p ~/.config/systemd/user
+cp packaging/systemd/gitway-agent.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+
+# 2) Enable + start
+systemctl --user enable --now gitway-agent.service
+
+# 3) Expose the socket to your shell (.bashrc / .zshrc / config.fish)
+export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/gitway-agent.sock"
+```
+
+If `gitway` lives somewhere other than `/usr/local/bin/gitway` (for
+example `~/.cargo/bin/gitway` from `cargo install`, or
+`~/.nix-profile/bin/gitway` from Nix), edit the `ExecStart=` line
+before installing. The unit includes a hardened syscall filter
+(`@system-service`), locked personality, read-only home, and private
+`/tmp` + `/dev` to minimize attack surface around the stored key
+material.
+
 ## Arch Linux (AUR)
 
 Two AUR packages are provided:

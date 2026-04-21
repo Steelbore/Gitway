@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# systemd user unit for the Gitway SSH agent.
+#
+# Install into your user unit directory and enable:
+#
+#     mkdir -p ~/.config/systemd/user
+#     cp gitway-agent.service ~/.config/systemd/user/
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now gitway-agent.service
+#
+# Then add to your shell rc so clients find the socket:
+#
+#     export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/gitway-agent.sock"
+#
+# This unit runs the agent in foreground mode (`-D`) — systemd manages
+# the process lifecycle directly, so Gitway's own double-fork path is
+# deliberately unused here.
+
+[Unit]
+Description=Gitway SSH agent (user)
+Documentation=https://github.com/steelbore/gitway
+# Starting alongside OpenSSH's user ssh-agent would have them race on
+# SSH_AUTH_SOCK; refuse if both are enabled.
+Conflicts=ssh-agent.service
+
+[Service]
+Type=simple
+# Adjust this path if gitway lives elsewhere on your system
+# (`/usr/bin/gitway` for distro packages, `%h/.cargo/bin/gitway` for
+# `cargo install`, `%h/.nix-profile/bin/gitway` for Nix, etc.).
+ExecStart=/usr/local/bin/gitway agent start -D -s -a %t/gitway-agent.sock
+
+Restart=on-failure
+RestartSec=2
+
+# Hardening. The agent holds private key material, so strip every
+# capability and filesystem surface it does not need.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+# `@system-service` is the systemd-curated set for typical daemons;
+# @debug, @mount, @privileged, @reboot etc. are explicitly denied.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=default.target

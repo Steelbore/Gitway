@@ -211,7 +211,7 @@ Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. C
 ### Documentation & release
 
 - [✓] README: new "Running a Gitway-native SSH agent" section covering the `eval $(gitway agent start -D -s)` recipe and the v0.6 sign-algorithm caveat.
-- [ ] Optional `packaging/systemd/gitway-agent.service` user unit — deferred to v0.6.x.
+- [✓] Optional `packaging/systemd/gitway-agent.service` user unit — landed 2026-04-22. Hardened (`@system-service` syscall filter, `ProtectSystem=strict`, `ProtectHome=read-only`, `MemoryDenyWriteExecute`, `LockPersonality`, etc.), runs `gitway agent start -D` so systemd manages the process. `systemd-analyze --user verify` is clean.
 - [ ] Cut v0.6.0 tag after CI goes green on the Phase 3 commit.
 
 ### v0.6.x follow-up punch list
@@ -221,4 +221,4 @@ Complete OpenSSH replacement — Gitway ships its own long-lived agent daemon. C
 - [✓] Background daemonization via `Command::spawn` + in-child `setsid(2)` — landed 2026-04-22. No `unsafe` (no `pre_exec`); detached children get ppid=1 and their own session.
 - [ ] Windows named-pipe transport for both daemon and client.
 - [ ] Interactive `--confirm` flow (needs an SSH_ASKPASS-style side channel).
-- [ ] `systemd` user unit for one-command install (`systemctl --user enable gitway-agent`).
+- [✓] `systemd` user unit for one-command install (`systemctl --user enable gitway-agent`) — landed 2026-04-22 at `packaging/systemd/gitway-agent.service`.

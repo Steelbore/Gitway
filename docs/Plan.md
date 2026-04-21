@@ -96,7 +96,6 @@ Tracked as unchecked items under Milestone 13 in `docs/TODO.md`:
 
 - Windows named-pipe transport for client and daemon
 - Interactive `--confirm` flow (needs an askpass-style side channel)
-- `packaging/systemd/gitway-agent.service` user unit
 
 ## 6. Design decisions and rationale
 

@@ -347,6 +347,27 @@ requests override the daemon-wide default.
 gitway agent stop                       # reads $SSH_AGENT_PID or the pid file
 ```
 
+### Running under systemd (optional)
+
+A hardened user unit ships in
+[`packaging/systemd/gitway-agent.service`](packaging/systemd/gitway-agent.service).
+Install, enable, and point your shell at the socket:
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp packaging/systemd/gitway-agent.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now gitway-agent.service
+
+# add to .bashrc / .zshrc / config.fish
+export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/gitway-agent.sock"
+```
+
+The unit runs `gitway agent start -D` under a `@system-service` syscall
+filter with read-only `$HOME`, private `/tmp`, and no new privileges —
+see the file header for the full hardening list and how to change
+`ExecStart=` if your `gitway` binary lives outside `/usr/local/bin`.
+
 ### Scope
 
 - **Fully supported**: Ed25519, ECDSA (P-256, P-384, P-521), and RSA
