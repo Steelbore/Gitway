@@ -60,6 +60,12 @@ fn main() -> ExitCode {
         }
         Err(e) => {
             eprintln!("gitway-keygen: error: {e}");
+            // Single-line diagnostic — git invokes this shim via
+            // `gpg.ssh.program` and treats any non-zero exit as "signing
+            // failed" with no further context, so emit one grep-able
+            // record to stderr (stdout stays byte-compatible with
+            // ssh-keygen for git's parser).
+            gitway_lib::diagnostic::emit_for(&e);
             let byte = u8::try_from(e.exit_code()).unwrap_or(1);
             ExitCode::from(byte)
         }

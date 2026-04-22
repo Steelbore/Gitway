@@ -68,6 +68,63 @@ cargo install --path gitway-cli
 cargo install --path gitway-cli
 ```
 
+### On NixOS
+
+Gitway exposes a flake at `github:steelbore/gitway`. Three install paths
+are supported, in order of increasing declarativeness.
+
+**Imperative, per-user — `nix profile`:**
+```sh
+nix profile install github:steelbore/gitway
+```
+
+Installs `gitway`, `gitway-keygen`, and `gitway-add` into
+`~/.nix-profile/bin/`. Upgrade later with
+`nix profile upgrade gitway`.
+
+**One-shot run without installing:**
+```sh
+nix run github:steelbore/gitway -- --test
+```
+
+**Declarative, system-wide — flake input on NixOS:**
+
+In `/etc/nixos/flake.nix`:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    gitway.url  = "github:steelbore/gitway";
+  };
+
+  outputs = { self, nixpkgs, gitway, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system  = "x86_64-linux";
+      modules = [
+        ({ pkgs, ... }: {
+          environment.systemPackages = [
+            gitway.packages.${pkgs.system}.default
+          ];
+        })
+      ];
+    };
+  };
+}
+```
+
+Then `sudo nixos-rebuild switch`.
+
+**Declarative, per-user — flake input via home-manager:**
+
+With `gitway` passed into the home-manager config as a flake input:
+
+```nix
+{ gitway, pkgs, ... }: {
+  home.packages = [ gitway.packages.${pkgs.system}.default ];
+}
+```
+
 ### Register as the global Git SSH command
 
 **All shells:**
@@ -76,8 +133,256 @@ gitway --install
 # Runs: git config --global core.sshCommand gitway
 ```
 
+The `--install` command writes one line into your `~/.gitconfig`:
+
+```ini
+[core]
+    sshCommand = gitway
+```
+
+Verify it:
+```sh
+git config --global --get core.sshCommand
+# → gitway
+```
+
+Remove it to fall back to OpenSSH:
+```sh
+git config --global --unset core.sshCommand
+```
+
 After this, every `git clone`, `git fetch`, and `git push` over SSH uses Gitway
-automatically.
+automatically. Make sure `gitway` itself is on a PATH that *non-interactive*
+shells see — see **[Making gitway discoverable to Git](#making-gitway-discoverable-to-git)**
+below.
+
+---
+
+## Making gitway discoverable to Git
+
+Git invokes `core.sshCommand = gitway` via `execvp`, which walks the
+**current process's** `PATH` — not the PATH you see in your terminal.
+IDEs, GUI git clients, systemd user services, and most launchers start
+processes *without* sourcing `~/.bashrc` / `~/.zshrc` / `~/.ionrc`, so
+paths added only in an interactive-shell rc file are invisible to them.
+
+The gitway binary must live somewhere every inherited environment sees:
+
+**NixOS** — all three standard Nix profile paths are injected into PATH by
+the NixOS PAM stack and thus visible to non-interactive shells and GUI
+apps:
+
+- `~/.nix-profile/bin/gitway` — from `nix profile install github:steelbore/gitway`
+- `/etc/profiles/per-user/$USER/bin/gitway` — from home-manager
+  `home.packages` (including `services.gitway-agent.enable = true`)
+- `/run/current-system/sw/bin/gitway` — from NixOS
+  `environment.systemPackages`
+
+**Debian / RPM distros** — `/usr/bin/gitway` from the official `.deb` or
+`.rpm` package is universal. Every shell, every launcher, every systemd
+unit can reach it without configuration.
+
+**`cargo install` users (`~/.cargo/bin`)** — this is the classic footgun.
+`~/.cargo/bin` is on PATH **only** if it's exported system-wide (in
+`/etc/environment`, `~/.profile`, `~/.pam_environment`, or a systemd
+`environment.d` drop-in), **not** if it's only added in `.bashrc`. If
+`git push` works from your terminal but fails from your IDE with a bare
+`exit 128`, this is almost certainly why.
+
+Two fixes:
+
+```sh
+# Option 1 — install gitway into a system-wide location:
+sudo install -m755 ~/.cargo/bin/gitway        /usr/local/bin/gitway
+sudo install -m755 ~/.cargo/bin/gitway-keygen /usr/local/bin/gitway-keygen
+sudo install -m755 ~/.cargo/bin/gitway-add    /usr/local/bin/gitway-add
+
+# Option 2 — add ~/.cargo/bin to a PATH file that non-interactive shells
+# read.  On most Linux distros, /etc/environment is the right spot:
+echo 'PATH="/home/'$USER'/.cargo/bin:/usr/bin:/bin"' | sudo tee -a /etc/environment
+# (and log out + back in)
+```
+
+Quick diagnostic — does a stripped environment see `gitway`?
+
+```sh
+env -i PATH=/usr/bin:/bin which gitway
+```
+
+If that prints nothing, neither will your IDE's embedded git.
+
+---
+
+## First-run setup
+
+This puts transport, signing, and agent into a single working configuration.
+Three pieces, in order: **agent**, **git config**, **GitHub signing-key
+upload**.
+
+### 1. Run the agent and load a key
+
+The agent persists unlocked key material for the session, so Git and `gh`
+stop prompting for a passphrase on every push.
+
+#### Option A — Home-Manager (NixOS or Linux with HM)
+
+Enable the module this flake exposes. Add to your `home.nix` (assuming the
+flake is imported as a `gitway` input):
+
+```nix
+{ gitway, pkgs, ... }: {
+  imports = [ gitway.homeManagerModules.default ];
+
+  services.gitway-agent.enable = true;
+}
+```
+
+Rebuild with `home-manager switch`. The module:
+
+- Installs `gitway`, `gitway-keygen`, and `gitway-add` into your user profile.
+- Runs the hardened `gitway agent start -D` as a user systemd service.
+- Exports `SSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/gitway-agent.sock` into every
+  child shell via `home.sessionVariables`.
+
+Load your key once per boot:
+
+```sh
+gitway-add ~/.ssh/id_ed25519
+```
+
+The agent survives reconnects and shell restarts until you reboot or run
+`systemctl --user stop gitway-agent`.
+
+#### Option B — NixOS module (system-wide)
+
+Identical option set, system-scoped:
+
+```nix
+{ gitway, ... }: {
+  imports = [ gitway.nixosModules.default ];
+  services.gitway-agent.enable = true;
+}
+```
+
+#### Option C — Raw systemd user unit (any distro)
+
+See [`packaging/systemd/gitway-agent.service`](packaging/systemd/gitway-agent.service):
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp packaging/systemd/gitway-agent.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now gitway-agent.service
+```
+
+Then export the socket path in your shell rc (snippet per shell below).
+
+#### Option D — Per-shell, no systemd
+
+Start the agent inside the login shell and export its environment. Fine
+for quick smoke tests; Option A/B/C is better for daily use.
+
+**Bash / Brush** — add to `~/.bashrc`:
+```bash
+if [ -z "$SSH_AUTH_SOCK" ] || ! gitway-add -l >/dev/null 2>&1; then
+  eval "$(gitway agent start -s)"
+fi
+```
+
+**Nushell** — add to `$nu.env-path`:
+```nu
+if ($env.SSH_AUTH_SOCK? | is-empty) {
+    let agent = (^gitway agent start -s)
+    $env.SSH_AUTH_SOCK = ($agent | parse -r 'SSH_AUTH_SOCK=([^;]+)' | get capture0.0)
+    $env.SSH_AGENT_PID = ($agent | parse -r 'SSH_AGENT_PID=([^;]+)' | get capture0.0)
+}
+```
+
+**Ion** — Ion has no `eval`. Use Option A/B/C and set `SSH_AUTH_SOCK`
+directly in `~/.config/ion/initrc`:
+```ion
+export SSH_AUTH_SOCK = "${XDG_RUNTIME_DIR}/gitway-agent.sock"
+```
+
+### 2. Export `SSH_AUTH_SOCK` if you used Option C
+
+Home-Manager (Option A) and the NixOS module (Option B) do this for you.
+For Option C, add one line to your shell rc so every client finds the
+running agent:
+
+**Bash / Brush** (`~/.bashrc` / `~/.brushrc`):
+```bash
+export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/gitway-agent.sock"
+```
+
+**Nushell** (`$nu.env-path`):
+```nu
+$env.SSH_AUTH_SOCK = $"($env.XDG_RUNTIME_DIR)/gitway-agent.sock"
+```
+
+**Ion** (`~/.config/ion/initrc`):
+```ion
+export SSH_AUTH_SOCK = "${XDG_RUNTIME_DIR}/gitway-agent.sock"
+```
+
+### 3. Configure git for SSH-signed commits
+
+Wire Git to sign every commit with your SSH key via `gitway-keygen` (no
+GPG or OpenSSH required). **All shells:**
+
+```sh
+# Your identity — use your `noreply` address to hide your real email.
+git config --global user.name  "Your Name"
+git config --global user.email "youremail@users.noreply.github.com"
+
+# Use the public key as the signing identity.
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+
+# Sign every commit with SSH (not GPG).
+git config --global gpg.format     ssh
+git config --global gpg.ssh.program gitway-keygen
+git config --global commit.gpgsign true
+```
+
+`gpg.ssh.program=gitway-keygen` is the wire: Git invokes it exactly the
+way it invokes `ssh-keygen -Y sign`, and the shim is byte-compatible with
+real ssh-keygen for that argv.
+
+If you haven't already registered gitway as the SSH transport (step 2 of
+**Installation** above), also add `core.sshCommand = gitway` — either via
+`gitway --install` or by hand in `~/.gitconfig`. Without that line,
+`git push` still uses OpenSSH even though commit signing goes through
+gitway-keygen.
+
+### 4. Upload the signing key to GitHub
+
+So the Verified badge appears on commits you push. **All shells:**
+
+```sh
+# Grant gh the scope it needs to manage signing keys:
+gh auth refresh -h github.com -s admin:ssh_signing_key
+
+# Upload the public key:
+gh ssh-key add ~/.ssh/id_ed25519.pub --type signing --title "gitway"
+```
+
+The `!` prefix in the original recipe (`! gh ssh-key add ...`) is only
+relevant inside a Claude Code session — on a normal shell prompt, drop
+the `!` and run the command directly.
+
+### 5. Verify end-to-end
+
+```sh
+git commit --allow-empty -m "gitway signing smoke test"
+git log --show-signature -1      # expect: "Good \"git\" signature ..."
+git push
+gh api repos/OWNER/REPO/commits/$(git rev-parse HEAD) | jq .commit.verification.verified
+# expect: true
+```
+
+If verification is `false`, re-check that the **same** key file is
+referenced in `user.signingkey` and uploaded to GitHub under
+**Settings → SSH and GPG keys → type: Signing Key**.
 
 ---
 

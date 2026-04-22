@@ -161,6 +161,40 @@ jobs:
             exit 1
           fi
 
+  # ── Nix flake check (Linux) ────────────────────────────────────────────────
+  #
+  # Guards against the flake drifting from the workspace Cargo.toml (stale
+  # version, wrong build flags, broken meta).  Runs `nix flake check` + a
+  # full `nix build .#default` so any NixOS user following the README's
+  # `nix profile install github:steelbore/gitway` recipe gets a working
+  # binary at the current version.
+  nix-flake:
+    name: nix flake check + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: nix flake check
+        run: nix flake check --all-systems
+
+      - name: nix build .#default
+        run: nix build .#default --print-build-logs
+
+      - name: Verify all three binaries are installed
+        run: |
+          test -x result/bin/gitway
+          test -x result/bin/gitway-keygen
+          test -x result/bin/gitway-add
+          ./result/bin/gitway --version
+
   # ── MSRV check (Linux) ──────────────────────────────────────────────────────
   msrv:
     name: cargo check (MSRV 1.85)

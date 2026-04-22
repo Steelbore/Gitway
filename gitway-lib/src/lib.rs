@@ -44,12 +44,14 @@ pub mod agent;
 pub mod allowed_signers;
 pub mod auth;
 pub mod config;
+pub mod diagnostic;
 pub mod error;
 pub mod hostkey;
 pub mod keygen;
 pub mod relay;
 pub mod session;
 pub mod sshsig;
+pub mod time;
 
 // ── Flat re-exports (FR-23) ───────────────────────────────────────────────────
 
