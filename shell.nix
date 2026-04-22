@@ -35,17 +35,14 @@ pkgs.mkShell {
     git
   ];
 
-  # Override NixOS-injected flags that break aws-lc-rs:
-  # -flto=auto can fail during C compilation of the crypto backend.
-  # -C target-cpu=x86-64-v4 requires AVX-512 (not universally available).
-  CFLAGS    = "-march=native -O2 -pipe";
-  RUSTFLAGS = "-C target-cpu=native";
+  # Override NixOS-injected CFLAGS that break aws-lc-rs's C build:
+  # the stdenv injects `-flto=auto`, which produces GCC LTO IR objects
+  # the Rust linker can't resolve.  RUSTFLAGS is left to flow through
+  # from the ambient environment (e.g. the user's NixOS host) so
+  # host-level CPU targeting takes effect.
+  CFLAGS = "-march=native -O2 -pipe";
 
   shellHook = ''
-    # Unset any inherited RUSTFLAGS from the parent NixOS environment
-    # before applying ours, so they do not stack.
-    unset RUSTFLAGS
-    export RUSTFLAGS="-C target-cpu=native"
     echo "gitway dev shell ready. Run: cargo build --release"
   '';
 }

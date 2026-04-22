@@ -20,8 +20,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Ensure no platform-injected RUSTFLAGS override the build.
-  RUSTFLAGS: ""
 
 jobs:
   # ── Fast type-check (Linux) ─────────────────────────────────────────────────

@@ -51,11 +51,6 @@
           darwin.apple_sdk.frameworks.SystemConfiguration
         ];
 
-        # Suppress NixOS-injected RUSTFLAGS that may conflict with aws-lc-rs
-        # (e.g. -C target-cpu=x86-64-v4 requires AVX-512 which is not
-        # universally available).
-        RUSTFLAGS = "";
-
         meta = {
           description = "Purpose-built SSH transport client for Git hosting services";
           homepage    = "https://github.com/steelbore/gitway";
@@ -110,17 +105,14 @@
             git
           ];
 
-          # Override NixOS-injected flags that break aws-lc-rs:
-          # -flto=auto can fail during C compilation of the crypto backend.
-          # -C target-cpu=x86-64-v4 requires AVX-512 (not universal).
-          CFLAGS    = "-march=native -O2 -pipe";
-          RUSTFLAGS = "-C target-cpu=native";
+          # Override NixOS-injected CFLAGS that break aws-lc-rs's C build:
+          # the stdenv injects `-flto=auto`, which produces GCC LTO IR
+          # objects the Rust linker can't resolve.  RUSTFLAGS is left to
+          # flow through from the ambient environment (e.g. the user's
+          # NixOS host) so host-level CPU targeting takes effect.
+          CFLAGS = "-march=native -O2 -pipe";
 
           shellHook = ''
-            # Unset any inherited RUSTFLAGS from the parent NixOS environment
-            # before applying ours, so they don't stack.
-            unset RUSTFLAGS
-            export RUSTFLAGS="-C target-cpu=native"
             echo "gitway dev shell ready. Run: cargo build --release"
           '';
         };
