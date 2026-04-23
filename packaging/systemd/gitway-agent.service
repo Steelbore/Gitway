@@ -36,9 +36,15 @@ RestartSec=2
 
 # Hardening. The agent holds private key material, so strip every
 # capability and filesystem surface it does not need.
+#
+# `ProtectHome=read-only` covers `/home`, `/root`, and `/run/user/`
+# per systemd(5), so the agent cannot bind(2) its socket under
+# `$XDG_RUNTIME_DIR` without the explicit `ReadWritePaths=%t` grant
+# (otherwise the unit crash-loops with `EROFS`).
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=%t
 PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true

@@ -167,10 +167,30 @@
           config = lib.mkIf cfg.enable {
             home.packages = [ cfg.package ];
 
-            # Every client in this session finds the agent on the standard
-            # runtime path.  The literal `${XDG_RUNTIME_DIR}` is expanded by
-            # the shell at session start, not by Nix.
+            # SSH_AUTH_SOCK needs to reach two audiences:
+            #
+            #   1. `.profile`-sourced interactive shells — login bash/zsh,
+            #      Nushell's env config, terminals that source `~/.profile`.
+            #      `home.sessionVariables` covers this path.
+            #
+            #   2. Every child of `systemd --user` — GUI git clients launched
+            #      via the desktop session, non-interactive subshells spawned
+            #      by tools like Claude Code, cron / timers, other user
+            #      services.  These inherit their environment from the
+            #      systemd user manager, which reads `environment.d(5)` files
+            #      at session start.
+            #
+            # Setting only (1) leaves non-interactive children of the user
+            # session unable to find the agent — they fall back to prompting
+            # for the passphrase and fail with no TTY attached.  Writing both
+            # closes that gap.  The literal `${XDG_RUNTIME_DIR}` is expanded
+            # by the shell / systemd-environment-d-generator at session
+            # start, not by Nix (hence the `''${...}'' ` escape).
             home.sessionVariables.SSH_AUTH_SOCK = "\${XDG_RUNTIME_DIR}/gitway-agent.sock";
+
+            xdg.configFile."environment.d/10-gitway-agent.conf".text = ''
+              SSH_AUTH_SOCK=''${XDG_RUNTIME_DIR}/gitway-agent.sock
+            '';
 
             systemd.user.services.gitway-agent = {
               Unit = {
@@ -200,9 +220,16 @@
                 # Hardening — mirrors packaging/systemd/gitway-agent.service.
                 # The agent holds private key material; strip every capability
                 # and filesystem surface it does not need.
+                #
+                # `ProtectHome=read-only` covers `/home`, `/root`, AND
+                # `/run/user/` per systemd(5) — the socket path
+                # `%t/gitway-agent.sock` lives under `/run/user/$UID`, so
+                # without the `ReadWritePaths=%t` explicit grant the agent
+                # bind(2) fails with `EROFS` and the unit crash-loops.
                 NoNewPrivileges         = true;
                 ProtectSystem           = "strict";
                 ProtectHome             = "read-only";
+                ReadWritePaths          = [ "%t" ];
                 PrivateTmp              = true;
                 PrivateDevices          = true;
                 ProtectKernelTunables   = true;
@@ -253,6 +280,17 @@
           config = lib.mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
 
+            # System-wide `environment.d(5)` file so every user's systemd
+            # user manager exports SSH_AUTH_SOCK — reaches non-interactive
+            # subshells (Claude Code, scripts with `-c`), GUI git clients
+            # launched via the desktop session, cron / timers, and other
+            # user services.  The literal `${XDG_RUNTIME_DIR}` is expanded
+            # by systemd-environment-d-generator at session start, not by
+            # Nix.
+            environment.etc."environment.d/10-gitway-agent.conf".text = ''
+              SSH_AUTH_SOCK=''${XDG_RUNTIME_DIR}/gitway-agent.sock
+            '';
+
             systemd.user.services.gitway-agent = {
               description = "Gitway SSH agent (user)";
               wantedBy    = [ "default.target" ];
@@ -264,9 +302,14 @@
                 Restart    = "on-failure";
                 RestartSec = 2;
 
+                # `ProtectHome=read-only` covers `/run/user/` — without
+                # `ReadWritePaths=%t`, the agent cannot bind(2) its socket
+                # at `$XDG_RUNTIME_DIR/gitway-agent.sock` and crash-loops
+                # with `EROFS`.
                 NoNewPrivileges         = true;
                 ProtectSystem           = "strict";
                 ProtectHome             = "read-only";
+                ReadWritePaths          = [ "%t" ];
                 PrivateTmp              = true;
                 PrivateDevices          = true;
                 ProtectKernelTunables   = true;
