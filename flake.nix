@@ -45,11 +45,10 @@
           perl
         ];
 
-        # Platform-specific system libraries.
-        buildInputs = with pkgs; lib.optionals stdenv.isDarwin [
-          darwin.apple_sdk.frameworks.Security
-          darwin.apple_sdk.frameworks.SystemConfiguration
-        ];
+        # Modern nixpkgs exposes the Darwin SDK automatically via
+        # `stdenv`, so pure-Rust crates with the `aws-lc-rs` crypto
+        # backend don't need explicit `apple_sdk.frameworks.*` inputs
+        # (the legacy stubs were removed in 2025).
 
         meta = {
           description = "Purpose-built SSH transport client for Git hosting services";
