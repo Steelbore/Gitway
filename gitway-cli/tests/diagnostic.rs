@@ -75,6 +75,18 @@ fn transport_human_mode_emits_one_diag_line() {
             "git-upload-pack",
             "foo.git",
         ])
+        // Strip agent-detection env vars so the auto-JSON trigger on
+        // CI/agent hosts doesn't suppress the human-mode `gitway diag`
+        // line we're asserting on.  Applies to GitHub Actions
+        // (`CI=true`), Claude Code (`CLAUDECODE=1`), Cursor
+        // (`CURSOR_AGENT=1`), Gemini CLI (`GEMINI_CLI=1`), and the
+        // generic `AI_AGENT` / `AGENT` hooks.
+        .env_remove("AI_AGENT")
+        .env_remove("AGENT")
+        .env_remove("CI")
+        .env_remove("CLAUDECODE")
+        .env_remove("CURSOR_AGENT")
+        .env_remove("GEMINI_CLI")
         .output()
         .expect("failed to run gitway");
 
