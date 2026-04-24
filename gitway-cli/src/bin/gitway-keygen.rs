@@ -36,14 +36,16 @@
 //! | `-I IDENTITY` | Signer identity for verify |
 //! | `-s SIG` | Signature file for verify |
 
+use std::env;
 use std::fs;
-use std::io::{self, Read as _, Write as _};
+use std::io::{self, Cursor, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use ssh_key::{HashAlg, LineEnding, PrivateKey, PublicKey};
 use zeroize::Zeroizing;
 
+use gitway_lib::agent::client::Agent;
 use gitway_lib::allowed_signers::AllowedSigners;
 use gitway_lib::keygen::{self, KeyType};
 use gitway_lib::sshsig;
@@ -408,13 +410,6 @@ fn run_sign(p: &Parsed) -> Result<u32, GitwayError> {
         ));
     };
 
-    // Git passes `user.signingkey` to `-f`, which is usually the `.pub`
-    // path. ssh-keygen(1) documents this: when the argument is a public
-    // key, the private counterpart is located by stripping `.pub`
-    // (agent-based signing is Phase 2 and not yet wired in).
-    let key_file = resolve_signing_key_path(&file)?;
-    let key = load_and_decrypt(&key_file, p.old_passphrase.as_deref())?;
-
     // Two input modes — mirrors ssh-keygen(1):
     //
     //  (a) `ssh-keygen -Y sign -n git -f <key>` reads the message from
@@ -435,17 +430,100 @@ fn run_sign(p: &Parsed) -> Result<u32, GitwayError> {
         (bytes, None)
     };
 
+    // Try the agent path first: if `SSH_AUTH_SOCK` is set, the socket
+    // is reachable, and the agent holds the matching private key, sign
+    // via the agent and return.  This path never reads the private-key
+    // file and therefore never prompts for a passphrase — the common
+    // failure mode for git-invoked `gitway-keygen` in non-interactive
+    // contexts (IDE, systemd service, CI) where stdin is not a TTY.
+    if let Some(armored) = try_sign_via_agent(&file, &data, &ns)? {
+        return write_sig_output(armored.as_bytes(), sig_out.as_deref());
+    }
+
+    // Fall back to the direct-read path.  Git passes `user.signingkey`
+    // to `-f`, usually the `.pub` path; `resolve_signing_key_path`
+    // strips `.pub` to find the private key.
+    let key_file = resolve_signing_key_path(&file)?;
+    let key = load_and_decrypt(&key_file, p.old_passphrase.as_deref())?;
+
     let sig = ssh_key::SshSig::sign(&key, &ns, HashAlg::Sha512, &data)
         .map_err(|e| GitwayError::signing(format!("sshsig sign failed: {e}")))?;
     let armored = sig
         .to_pem(LineEnding::LF)
         .map_err(|e| GitwayError::signing(format!("armor failed: {e}")))?;
 
+    write_sig_output(armored.as_bytes(), sig_out.as_deref())
+}
+
+/// Tries to sign `data` via the SSH agent at `$SSH_AUTH_SOCK`.
+///
+/// Returns `Ok(Some(armored))` on a successful agent sign, `Ok(None)`
+/// when the agent path is not usable (env var unset, socket gone, key
+/// not loaded) — caller should fall back to the direct-read path.
+/// Returns `Err(_)` only for genuine errors *after* we've committed to
+/// the agent (e.g. the agent had our key but the sign request was
+/// actively denied via `--confirm`).
+fn try_sign_via_agent(
+    key_path: &Path,
+    data: &[u8],
+    namespace: &str,
+) -> Result<Option<String>, GitwayError> {
+    if env::var_os("SSH_AUTH_SOCK").is_none_or(|v| v.is_empty()) {
+        return Ok(None);
+    }
+    let Ok(pubkey) = load_public_key_for_signing(key_path) else {
+        return Ok(None);
+    };
+    let Ok(mut agent) = Agent::from_env() else {
+        return Ok(None);
+    };
+    let Ok(identities) = agent.list() else {
+        return Ok(None);
+    };
+    let want = pubkey.fingerprint(HashAlg::Sha256).to_string();
+    if !identities.iter().any(|id| id.fingerprint == want) {
+        return Ok(None);
+    }
+    let mut cursor = Cursor::new(data);
+    let armored =
+        sshsig::sign_with_agent(&mut cursor, &mut agent, &pubkey, namespace, HashAlg::Sha512)?;
+    Ok(Some(armored))
+}
+
+/// Reads the public key at `path` without touching private-key
+/// material.
+///
+/// Accepts both forms of `-f` argument:
+///
+///  - a `.pub` file (what git usually passes for `gpg.ssh.program`) —
+///    parsed directly as `PublicKey::from_openssh`;
+///  - a private-key file, encrypted or not — `PrivateKey::from_openssh`
+///    parses the plaintext public-key portion even when the private
+///    bytes are still encrypted, so we extract the public key without
+///    needing the passphrase.
+fn load_public_key_for_signing(path: &Path) -> Result<PublicKey, GitwayError> {
+    let raw = fs::read_to_string(path).map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound => GitwayError::no_key_found(),
+        _ => GitwayError::from(e),
+    })?;
+    if let Ok(pk) = PublicKey::from_openssh(&raw) {
+        return Ok(pk);
+    }
+    let priv_path = resolve_signing_key_path(path)?;
+    let priv_raw = fs::read_to_string(&priv_path)?;
+    let privkey = PrivateKey::from_openssh(&priv_raw)
+        .map_err(|e| GitwayError::invalid_config(format!("cannot parse signing key: {e}")))?;
+    Ok(privkey.public_key().clone())
+}
+
+/// Writes the armored SSHSIG to the message-file companion (`.sig`)
+/// when present, else to stdout.
+fn write_sig_output(armored: &[u8], sig_out: Option<&Path>) -> Result<u32, GitwayError> {
     if let Some(path) = sig_out {
-        fs::write(&path, armored.as_bytes())?;
+        fs::write(path, armored)?;
     } else {
         let mut out = io::stdout().lock();
-        out.write_all(armored.as_bytes())?;
+        out.write_all(armored)?;
         out.flush()?;
     }
     Ok(0)

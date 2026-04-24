@@ -51,9 +51,9 @@ use std::time::Duration;
 
 use ssh_agent_lib::blocking::Client;
 use ssh_agent_lib::proto::{
-    AddIdentity, AddIdentityConstrained, Credential, KeyConstraint, RemoveIdentity,
+    AddIdentity, AddIdentityConstrained, Credential, KeyConstraint, RemoveIdentity, SignRequest,
 };
-use ssh_key::{HashAlg, PrivateKey, PublicKey};
+use ssh_key::{Algorithm, HashAlg, PrivateKey, PublicKey, Signature};
 use zeroize::Zeroizing;
 
 use crate::GitwayError;
@@ -267,6 +267,39 @@ impl Agent {
         self.inner
             .unlock(passphrase.as_str().to_owned())
             .map_err(|e| io_err(format!("agent unlock failed: {e}")))
+    }
+
+    /// Asks the agent to sign `data` with the loaded private key whose
+    /// public counterpart matches `public_key`.
+    ///
+    /// For RSA keys the request carries `SSH_AGENT_RSA_SHA2_512`
+    /// (flag = 4) so the agent returns an `rsa-sha2-512` signature —
+    /// matching OpenSSH's `-Y sign` default and the one SSHSIG
+    /// verifiers expect.  Ed25519 and ECDSA ignore the flag field; the
+    /// algorithm is fixed by the key type.
+    ///
+    /// SHA-1 `ssh-rsa` downgrade (flag = 0 on an RSA key) is not
+    /// requested here — OpenSSH 8.2+ (Jan 2020) always asks for
+    /// SHA-2, and our own daemon rejects SHA-1 RSA requests in
+    /// [`crate::agent::daemon`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GitwayError`] when the agent rejects the request
+    /// (commonly because the key is not loaded, the agent is locked,
+    /// or a `--confirm` prompt was denied) or on I/O failure.
+    pub fn sign(&mut self, public_key: &PublicKey, data: &[u8]) -> Result<Signature, GitwayError> {
+        let flags: u32 = match public_key.algorithm() {
+            Algorithm::Rsa { .. } => 4, // SSH_AGENT_RSA_SHA2_512
+            _ => 0,
+        };
+        self.inner
+            .sign(SignRequest {
+                pubkey: public_key.key_data().clone(),
+                data: data.to_vec(),
+                flags,
+            })
+            .map_err(|e| io_err(format!("agent sign failed: {e}")))
     }
 }
 

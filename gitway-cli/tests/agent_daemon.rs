@@ -522,3 +522,84 @@ fn assert_sign_denied(err: &ssh_agent_lib::error::AgentError) {
         || matches!(err, AgentError::Proto(ProtoError::UnexpectedResponse));
     assert!(ok, "expected sign denial, got: {err:?}");
 }
+
+/// Proves `gitway-keygen -Y sign` uses the agent when `SSH_AUTH_SOCK`
+/// is set and the matching key is loaded — *without* ever reading the
+/// private-key file.
+///
+/// Strategy: generate a key, add it to the daemon, **delete the
+/// private-key file**, then drive `gitway-keygen -Y sign` with only
+/// the `.pub` file as `-f`.  If the agent path is taken, the sign
+/// succeeds and the armored SSHSIG round-trips through
+/// `check-novalidate`.  If the old direct-read fall-through is
+/// invoked, `resolve_signing_key_path` fails on the missing private
+/// file and the exit code is non-zero — making the two code paths
+/// unambiguously distinguishable in CI.
+#[test]
+fn keygen_sign_uses_agent_without_private_key_on_disk() {
+    let dir = TempDir::new().unwrap();
+    let daemon = Daemon::spawn(&dir);
+
+    // Generate key, add to agent, then remove the private-key file.
+    let key_path = dir.path().join("k");
+    let pub_path = dir.path().join("k.pub");
+    assert!(Command::new(gitway_keygen())
+        .args(["-t", "ed25519", "-f", key_path.to_str().unwrap(), "-N", ""])
+        .output()
+        .unwrap()
+        .status
+        .success());
+    assert!(Command::new(gitway_add())
+        .env("SSH_AUTH_SOCK", &daemon.sock)
+        .arg(&key_path)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    fs::remove_file(&key_path).unwrap();
+    assert!(!key_path.exists(), "private key should be gone");
+    assert!(pub_path.exists(), ".pub file must remain");
+
+    // Sign `hello` via the agent.
+    let msg_path = dir.path().join("msg");
+    fs::write(&msg_path, b"hello agent-backed signing").unwrap();
+    let sign = Command::new(gitway_keygen())
+        .env("SSH_AUTH_SOCK", &daemon.sock)
+        .args(["-Y", "sign", "-n", "test", "-f", pub_path.to_str().unwrap()])
+        .arg(&msg_path)
+        .output()
+        .unwrap();
+    assert!(
+        sign.status.success(),
+        "agent sign failed — the agent path was not taken; stderr={:?}",
+        String::from_utf8_lossy(&sign.stderr)
+    );
+
+    let sig_path = {
+        let mut s = msg_path.clone().into_os_string();
+        s.push(".sig");
+        PathBuf::from(s)
+    };
+    let sig = fs::read_to_string(&sig_path).expect("signature file written");
+    assert!(sig.starts_with("-----BEGIN SSH SIGNATURE-----"));
+    assert!(sig.trim_end().ends_with("-----END SSH SIGNATURE-----"));
+
+    // Round-trip through check-novalidate; stdin is the signed message.
+    let verify = Command::new(gitway_keygen())
+        .args([
+            "-Y",
+            "check-novalidate",
+            "-n",
+            "test",
+            "-s",
+            sig_path.to_str().unwrap(),
+        ])
+        .stdin(std::fs::File::open(&msg_path).unwrap())
+        .output()
+        .unwrap();
+    assert!(
+        verify.status.success(),
+        "check-novalidate failed on agent-signed blob: stderr={:?}",
+        String::from_utf8_lossy(&verify.stderr)
+    );
+}

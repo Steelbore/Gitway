@@ -32,6 +32,7 @@ use std::io::Read;
 
 use ssh_key::{HashAlg, LineEnding, PrivateKey, PublicKey, SshSig};
 
+use crate::agent::client::Agent;
 use crate::allowed_signers::AllowedSigners;
 use crate::GitwayError;
 
@@ -70,6 +71,38 @@ pub fn sign<R: Read>(
     data.read_to_end(&mut buf)?;
     let sig = SshSig::sign(key, namespace, hash, &buf)
         .map_err(|e| GitwayError::signing(format!("sshsig sign failed: {e}")))?;
+    sig.to_pem(LineEnding::LF)
+        .map_err(|e| GitwayError::signing(format!("sshsig armor failed: {e}")))
+}
+
+/// Signs via an SSH agent, producing the same armored SSHSIG string as
+/// [`sign`] but without ever reading the private-key material.
+///
+/// Computes the SSHSIG inner blob (`SshSig::signed_data`), hands it to
+/// `agent.sign(public_key, ...)`, then wraps the returned raw signature
+/// into an `SshSig` and PEM-armors it.  End-to-end indistinguishable
+/// from the direct-read path — `ssh-keygen -Y verify` accepts both.
+///
+/// # Errors
+///
+/// Returns [`GitwayError::signing`] on agent or cryptographic failure.
+/// If the agent does not hold the matching private key, the error comes
+/// from the agent side and callers typically want to fall back to the
+/// [`sign`] path.
+pub fn sign_with_agent<R: Read>(
+    data: &mut R,
+    agent: &mut Agent,
+    public_key: &PublicKey,
+    namespace: &str,
+    hash: HashAlg,
+) -> Result<String, GitwayError> {
+    let mut buf = Vec::new();
+    data.read_to_end(&mut buf)?;
+    let signed_blob = SshSig::signed_data(namespace, hash, &buf)
+        .map_err(|e| GitwayError::signing(format!("sshsig signed_data failed: {e}")))?;
+    let signature = agent.sign(public_key, &signed_blob)?;
+    let sig = SshSig::new(public_key.key_data().clone(), namespace, hash, signature)
+        .map_err(|e| GitwayError::signing(format!("sshsig wrap failed: {e}")))?;
     sig.to_pem(LineEnding::LF)
         .map_err(|e| GitwayError::signing(format!("sshsig armor failed: {e}")))
 }
