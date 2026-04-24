@@ -720,7 +720,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-gitway-lib = "0.7.0"
+gitway-lib = "0.8.0"
 ```
 
 ### Connect and run a Git command
