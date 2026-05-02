@@ -22,7 +22,7 @@
 
 use std::fs;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use tempfile::TempDir;
@@ -70,6 +70,50 @@ fn generate_test_key(dir: &TempDir) -> PathBuf {
         key_path.display()
     );
     key_path
+}
+
+/// Signs `payload` with `key_path` under `namespace` and writes the armored
+/// SSHSIG to `sig_path`.  Used by the verify-mode tests below.
+fn sign_to_file(key_path: &Path, namespace: &str, payload: &[u8], sig_path: &Path) {
+    let mut child = Command::new(gitway_keygen())
+        .args([
+            "-Y",
+            "sign",
+            "-n",
+            namespace,
+            "-f",
+            key_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn gitway-keygen -Y sign");
+    child.stdin.as_mut().unwrap().write_all(payload).unwrap();
+    let output = child.wait_with_output().expect("sign subprocess failed");
+    assert!(
+        output.status.success(),
+        "sign failed: stderr={:?}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    fs::write(sig_path, &output.stdout).unwrap();
+}
+
+/// Writes a single-entry `allowed_signers` file authorizing `principal` to
+/// sign under `namespaces` (e.g. `"git"`) with the public key at `pub_path`.
+fn write_allowed_signers_for(
+    pub_path: &Path,
+    principal: &str,
+    namespaces: &str,
+    allowed_path: &Path,
+) {
+    let pub_line = fs::read_to_string(pub_path).expect("read pub key");
+    let trimmed = pub_line.trim();
+    let mut parts = trimmed.splitn(3, char::is_whitespace);
+    let key_type = parts.next().expect("pub line has key type");
+    let key_b64 = parts.next().expect("pub line has key blob");
+    let line = format!("{principal} namespaces=\"{namespaces}\" {key_type} {key_b64}\n");
+    fs::write(allowed_path, line).unwrap();
 }
 
 // ── Hermetic tests (always run) ──────────────────────────────────────────────
@@ -218,6 +262,180 @@ fn namespace_mismatch_is_rejected() {
     child.stdin.as_mut().unwrap().write_all(b"payload").unwrap();
     let verify_output = child.wait_with_output().unwrap();
     assert!(!verify_output.status.success());
+}
+
+// ── Packed and separated `-O` option compat (always run) ────────────────────
+//
+// Git for Windows 2.45+ passes `-Overify-time=YYYYMMDDHHMMSS` (packed form,
+// single argv token) to the `gpg.ssh.program` binary during signature
+// verification.  Older Git versions and `ssh-keygen -Y sign` use the
+// separated form `-O verify-time=…`.  Both must parse and be ignored —
+// Gitway has no allowed-signers time-bound enforcement, so option semantics
+// are deferred.
+
+#[test]
+#[allow(non_snake_case)]
+fn check_novalidate_accepts_packed_O_verify_time() {
+    let dir = TempDir::new().unwrap();
+    let key_path = generate_test_key(&dir);
+    let sig_path = dir.path().join("sig");
+    let payload = b"packed-O check-novalidate";
+    sign_to_file(&key_path, "git", payload, &sig_path);
+
+    let mut child = Command::new(gitway_keygen())
+        .args([
+            "-Y",
+            "check-novalidate",
+            "-n",
+            "git",
+            "-s",
+            sig_path.to_str().unwrap(),
+            "-Overify-time=20260502133530",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(payload).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "check-novalidate exit={:?}, stderr={:?}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Good \"git\" signature"),
+        "unexpected stdout: {stdout:?}"
+    );
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn check_novalidate_accepts_separated_O_value_for_compat() {
+    let dir = TempDir::new().unwrap();
+    let key_path = generate_test_key(&dir);
+    let sig_path = dir.path().join("sig");
+    let payload = b"separated-O regression guard";
+    sign_to_file(&key_path, "git", payload, &sig_path);
+
+    let mut child = Command::new(gitway_keygen())
+        .args([
+            "-Y",
+            "check-novalidate",
+            "-n",
+            "git",
+            "-s",
+            sig_path.to_str().unwrap(),
+            "-O",
+            "verify-time=20260502133530",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(payload).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "check-novalidate (separated -O) exit={:?}, stderr={:?}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+    );
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn find_principals_accepts_packed_O_verify_time() {
+    let dir = TempDir::new().unwrap();
+    let key_path = generate_test_key(&dir);
+    let pub_path = key_path.with_extension("pub");
+    let sig_path = dir.path().join("sig");
+    let allowed_path = dir.path().join("allowed_signers");
+    let payload = b"find-principals packed-O baseline";
+
+    sign_to_file(&key_path, "git", payload, &sig_path);
+    write_allowed_signers_for(&pub_path, "user@example.com", "git", &allowed_path);
+
+    let output = Command::new(gitway_keygen())
+        .args([
+            "-Y",
+            "find-principals",
+            "-n",
+            "git",
+            "-s",
+            sig_path.to_str().unwrap(),
+            "-f",
+            allowed_path.to_str().unwrap(),
+            "-Overify-time=20260502133530",
+        ])
+        .output()
+        .expect("failed to spawn gitway-keygen -Y find-principals");
+    assert!(
+        output.status.success(),
+        "find-principals exit={:?}, stderr={:?}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("user@example.com"),
+        "expected principal in stdout, got {stdout:?}"
+    );
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn verify_accepts_packed_O_verify_time() {
+    let dir = TempDir::new().unwrap();
+    let key_path = generate_test_key(&dir);
+    let pub_path = key_path.with_extension("pub");
+    let sig_path = dir.path().join("sig");
+    let allowed_path = dir.path().join("allowed_signers");
+    let payload = b"verify packed-O baseline";
+
+    sign_to_file(&key_path, "git", payload, &sig_path);
+    write_allowed_signers_for(&pub_path, "user@example.com", "git", &allowed_path);
+
+    let mut child = Command::new(gitway_keygen())
+        .args([
+            "-Y",
+            "verify",
+            "-n",
+            "git",
+            "-I",
+            "user@example.com",
+            "-s",
+            sig_path.to_str().unwrap(),
+            "-f",
+            allowed_path.to_str().unwrap(),
+            "-Overify-time=20260502133530",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(payload).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "verify exit={:?}, stderr={:?}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Good \"git\" signature"),
+        "expected Good signature line, got {stdout:?}"
+    );
+    assert!(
+        stdout.contains("user@example.com"),
+        "expected signer identity in stdout, got {stdout:?}"
+    );
 }
 
 // ── Opt-in cross-check against real ssh-keygen (requires OpenSSH) ────────────

@@ -209,11 +209,24 @@ impl Parsed {
                         "--allowed-signers",
                     )?));
                 }
+                o if o.strip_prefix("-O").is_some_and(|rest| !rest.is_empty()) => {
+                    // Packed form `-O<option>[=<value>]` — Git for Windows
+                    // passes `-Overify-time=YYYYMMDDHHMMSS` this way during
+                    // SSH signature verification (`git log --show-signature`,
+                    // `git verify-commit`).  Real ssh-keygen accepts both the
+                    // packed and the separated form.  We accept-and-ignore
+                    // here, matching the existing separated arm below; wiring
+                    // real semantics for `verify-time` / `hashalg` is a
+                    // separate feature (the allowed-signers parser in
+                    // `gitway-lib::allowed_signers` does not enforce
+                    // `valid-after` / `valid-before` either).
+                    i += 1;
+                }
                 "-O" => {
-                    // Option pass-through used by `ssh-keygen -Y sign`: we
-                    // accept and ignore (the only upstream option we might
-                    // care about is `hashalg=...` which the SSHSIG layer
-                    // picks its own default for).
+                    // Separated form `-O <option>[=<value>]` used by
+                    // `ssh-keygen -Y sign` (and historically by older
+                    // verify code paths).  Accepted-and-ignored — see the
+                    // packed arm above for rationale.
                     let _ = take_value(args, &mut i, "-O")?;
                 }
                 "-q" | "-v" | "-vv" | "-vvv" => {
