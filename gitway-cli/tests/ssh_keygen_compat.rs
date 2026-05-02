@@ -274,8 +274,7 @@ fn namespace_mismatch_is_rejected() {
 // are deferred.
 
 #[test]
-#[allow(non_snake_case)]
-fn check_novalidate_accepts_packed_O_verify_time() {
+fn check_novalidate_accepts_packed_o_verify_time() {
     let dir = TempDir::new().unwrap();
     let key_path = generate_test_key(&dir);
     let sig_path = dir.path().join("sig");
@@ -313,8 +312,7 @@ fn check_novalidate_accepts_packed_O_verify_time() {
 }
 
 #[test]
-#[allow(non_snake_case)]
-fn check_novalidate_accepts_separated_O_value_for_compat() {
+fn check_novalidate_accepts_separated_o_value_for_compat() {
     let dir = TempDir::new().unwrap();
     let key_path = generate_test_key(&dir);
     let sig_path = dir.path().join("sig");
@@ -348,8 +346,7 @@ fn check_novalidate_accepts_separated_O_value_for_compat() {
 }
 
 #[test]
-#[allow(non_snake_case)]
-fn find_principals_accepts_packed_O_verify_time() {
+fn find_principals_accepts_packed_o_verify_time() {
     let dir = TempDir::new().unwrap();
     let key_path = generate_test_key(&dir);
     let pub_path = key_path.with_extension("pub");
@@ -388,8 +385,7 @@ fn find_principals_accepts_packed_O_verify_time() {
 }
 
 #[test]
-#[allow(non_snake_case)]
-fn verify_accepts_packed_O_verify_time() {
+fn verify_accepts_packed_o_verify_time() {
     let dir = TempDir::new().unwrap();
     let key_path = generate_test_key(&dir);
     let pub_path = key_path.with_extension("pub");
