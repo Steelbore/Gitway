@@ -418,6 +418,18 @@ pub struct Cli {
     #[arg(long = "cert", value_name = "FILE")]
     pub cert: Option<PathBuf>,
 
+    /// Remote SSH username.
+    ///
+    /// Most Git hosts use `git` (GitHub, GitLab, Codeberg, GHE), which is
+    /// the default when this flag is omitted.  Some services use a different
+    /// account: Arch User Repository uses `aur`, sourcehut uses each user's
+    /// own login, etc.  Equivalent to `ssh -l <user>`.
+    ///
+    /// If both `--user` and the `user@host` form are supplied, `--user`
+    /// takes precedence (matches OpenSSH).
+    #[arg(short = 'l', long = "user", value_name = "USER")]
+    pub user: Option<String>,
+
     // ── Connection options ────────────────────────────────────────────────────
     /// SSH port (default: 22).
     #[arg(short = 'p', long = "port", value_name = "PORT", default_value_t = 22)]

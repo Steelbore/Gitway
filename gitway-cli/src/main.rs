@@ -215,14 +215,26 @@ async fn run(cli: Cli) -> Result<u32, GitwayError> {
         .clone()
         .unwrap_or_else(|| gitway_lib::hostkey::DEFAULT_GITHUB_HOST.to_owned());
 
-    // Strip username if present (e.g., "git@github.com" → "github.com").
-    // Git invokes SSH as: ssh git@github.com git-upload-pack ...
-    let host = parse_hostname(&raw_host);
+    // Split off the username if the host arg uses the `user@host` form.
+    // Git invokes SSH as: ssh <user>@<host> git-upload-pack ...; for GitHub
+    // and other "git" providers <user> is `git`, but AUR uses `aur`,
+    // sourcehut uses each user's login, etc.
+    let (parsed_user, host) = parse_user_host(&raw_host);
 
     let mut config_builder = GitwayConfig::builder(&host)
         .port(cli.port)
         .verbose(cli.verbose)
         .skip_host_check(cli.insecure_skip_host_check);
+
+    // Username precedence (matches OpenSSH `ssh -l`):
+    //   1. Explicit `-l/--user` on the command line.
+    //   2. The `user@` prefix on the host arg.
+    //   3. The `GitwayConfig` builder default (`git`).
+    if let Some(ref user) = cli.user {
+        config_builder = config_builder.username(user.clone());
+    } else if let Some(user) = parsed_user {
+        config_builder = config_builder.username(user);
+    }
 
     if let Some(ref identity) = cli.identity {
         config_builder = config_builder.identity_file(identity.clone());
@@ -506,6 +518,7 @@ fn run_schema() -> u32 {
             "--verbose": { "type": "boolean", "description": "Enable debug logging to stderr" },
             "--identity": { "type": "string", "description": "Path to SSH private key" },
             "--cert": { "type": "string", "description": "Path to OpenSSH certificate" },
+            "--user": { "type": "string", "default": "git", "description": "Remote SSH username (e.g. `aur` for AUR; default `git`)" },
             "--port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 22 },
             "--insecure-skip-host-check": { "type": "boolean", "description": "Skip host-key verification (danger)" },
         },
@@ -584,7 +597,8 @@ fn run_describe() -> u32 {
             "gitway-add"
         ],
         "global_flags": ["--json", "--format", "--verbose", "--no-color",
-                         "--insecure-skip-host-check", "--identity", "--cert", "--port"],
+                         "--insecure-skip-host-check", "--identity", "--cert",
+                         "--user", "--port"],
         "output_formats": ["json"],
         "mcp_available": false,
         "providers": ["github.com", "gitlab.com", "codeberg.org"],
@@ -850,26 +864,34 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     Ok(Some(Zeroizing::new(passphrase)))
 }
 
-// ── Hostname parsing ──────────────────────────────────────────────────────────
+// ── Host argument parsing ─────────────────────────────────────────────────────
 
-/// Extracts the hostname from a potential `user@host` string.
+/// Splits a `[user@]host` argument into its parts.
 ///
-/// Git invokes SSH with the full connection string: `git@github.com`.
-/// This function strips the username portion if present.
+/// Git invokes SSH with the full connection string (`git@github.com`,
+/// `aur@aur.archlinux.org`, etc.).  Returns the username portion when
+/// present so the caller can pass it to `GitwayConfig::username` instead
+/// of falling through to the `git` default.  An empty username (`@host`)
+/// is treated as no username — matches OpenSSH's `parse_uri` behaviour.
 ///
 /// # Examples
 ///
 /// ```
-/// # use gitway::parse_hostname;
-/// assert_eq!(parse_hostname("git@github.com"), "github.com");
-/// assert_eq!(parse_hostname("github.com"), "github.com");
-/// assert_eq!(parse_hostname("user@ghe.example.com"), "ghe.example.com");
+/// # use gitway::parse_user_host;
+/// assert_eq!(parse_user_host("git@github.com"),
+///            (Some("git".to_owned()), "github.com".to_owned()));
+/// assert_eq!(parse_user_host("aur@aur.archlinux.org"),
+///            (Some("aur".to_owned()), "aur.archlinux.org".to_owned()));
+/// assert_eq!(parse_user_host("github.com"),
+///            (None, "github.com".to_owned()));
+/// assert_eq!(parse_user_host("@github.com"),
+///            (None, "github.com".to_owned()));
 /// ```
-fn parse_hostname(raw: &str) -> String {
-    if let Some((_username, hostname)) = raw.split_once('@') {
-        hostname.to_owned()
-    } else {
-        raw.to_owned()
+fn parse_user_host(raw: &str) -> (Option<String>, String) {
+    match raw.split_once('@') {
+        Some((user, host)) if !user.is_empty() => (Some(user.to_owned()), host.to_owned()),
+        Some((_empty, host)) => (None, host.to_owned()),
+        None => (None, raw.to_owned()),
     }
 }
 
@@ -880,14 +902,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_hostname_strips_username() {
-        assert_eq!(parse_hostname("git@github.com"), "github.com");
-        assert_eq!(parse_hostname("user@ghe.example.com"), "ghe.example.com");
+    fn parse_user_host_extracts_git_default() {
+        assert_eq!(
+            parse_user_host("git@github.com"),
+            (Some("git".to_owned()), "github.com".to_owned())
+        );
     }
 
     #[test]
-    fn parse_hostname_handles_bare_hostname() {
-        assert_eq!(parse_hostname("github.com"), "github.com");
-        assert_eq!(parse_hostname("ghe.example.com"), "ghe.example.com");
+    fn parse_user_host_extracts_non_git_username() {
+        // The whole point of the flag: AUR uses `aur`, sourcehut uses the
+        // user's login, etc.  The CLI must surface the parsed user so
+        // `GitwayConfig::username` is set instead of falling back to `git`.
+        assert_eq!(
+            parse_user_host("aur@aur.archlinux.org"),
+            (Some("aur".to_owned()), "aur.archlinux.org".to_owned())
+        );
+        assert_eq!(
+            parse_user_host("alice@git.sr.ht"),
+            (Some("alice".to_owned()), "git.sr.ht".to_owned())
+        );
+    }
+
+    #[test]
+    fn parse_user_host_handles_bare_hostname() {
+        assert_eq!(
+            parse_user_host("github.com"),
+            (None, "github.com".to_owned())
+        );
+        assert_eq!(
+            parse_user_host("ghe.example.com"),
+            (None, "ghe.example.com".to_owned())
+        );
+    }
+
+    #[test]
+    fn parse_user_host_treats_empty_user_as_none() {
+        // `@host` (no user before the @) should not yield Some("").
+        // Matches OpenSSH's parse_uri behaviour.
+        assert_eq!(
+            parse_user_host("@github.com"),
+            (None, "github.com".to_owned())
+        );
     }
 }

@@ -572,6 +572,7 @@ gitway [OPTIONS] <host> <command...>
 |---|---|
 | `-i, --identity <FILE>` | Path to SSH private key |
 | `--cert <FILE>` | OpenSSH certificate alongside the key |
+| `-l, --user <USER>` | Remote SSH username (default: `git`; e.g. `aur` for AUR, the user's login on sourcehut) |
 | `-p, --port <PORT>` | SSH port (default: 22) |
 | `-v, --verbose` | Enable debug logging to stderr |
 | `--insecure-skip-host-check` | **Danger:** skip host-key verification |
@@ -598,6 +599,14 @@ gitway --verbose --test
 **Target a GitHub Enterprise Server instance:**
 ```sh
 gitway --port 22 ghe.corp.example.com git-upload-pack 'org/repo.git'
+```
+
+**Connect to a host that uses a non-`git` SSH account (e.g. AUR):**
+```sh
+# Either form works; the second is what `git clone ssh://aur@aur.archlinux.org/...`
+# passes through automatically.
+gitway --user aur aur.archlinux.org    git-upload-pack 'package.git'
+gitway aur@aur.archlinux.org           git-upload-pack 'package.git'
 ```
 
 **Use as GIT_SSH_COMMAND for a single operation:**
