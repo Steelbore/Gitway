@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Read(//c/Users/mj/AppData/Local/Temp/claude/c--steelbore-gitway/bcf7debe-8999-45a3-a231-59a57e6a0031/tasks/**)"
+    ]
+  }
+}
