@@ -68,6 +68,180 @@ cargo install --path gitway-cli
 cargo install --path gitway-cli
 ```
 
+### On Alpine Linux
+
+No Alpine package exists yet. The pre-built static musl binary from the GitHub
+Releases page runs natively on Alpine with no libc dependency.
+
+**Option A — pre-built binary (recommended):**
+```sh
+# Download and install the latest release binary
+wget -qO- https://github.com/steelbore/gitway/releases/latest/download/gitway-linux-x86_64.tar.gz \
+  | tar -xz
+sudo install -m755 gitway          /usr/local/bin/gitway
+sudo install -m755 gitway-keygen   /usr/local/bin/gitway-keygen
+sudo install -m755 gitway-add      /usr/local/bin/gitway-add
+```
+
+**Option B — build from source:**
+```sh
+apk add cargo gcc perl pkgconf
+cargo install gitway gitway-keygen
+```
+
+### On Arch Linux
+
+Two AUR packages are provided. `gitway-bin` installs the pre-built musl binary
+and is recommended for most users — no compiler required.
+
+**With an AUR helper (yay):**
+```sh
+yay -S gitway-bin
+```
+
+**With an AUR helper (paru):**
+```sh
+paru -S gitway-bin
+```
+
+**Without an AUR helper (manual):**
+```sh
+git clone https://aur.archlinux.org/gitway-bin.git
+cd gitway-bin
+makepkg -si
+```
+
+To track git HEAD instead (builds from source), use `gitway-git` in place of
+`gitway-bin`. The PKGBUILDs for both packages are also shipped in
+[`packaging/arch/`](packaging/arch/) in this repository.
+
+### On Debian / Ubuntu
+
+Pre-built `.deb` packages are produced by the CI release workflow and attached
+to every GitHub release.
+
+**Install a pre-built package:**
+```sh
+# Download the .deb for your architecture from the Releases page, then:
+sudo apt install ./gitway_*.deb
+```
+
+**Build locally:**
+```sh
+sudo apt install cargo gcc perl pkg-config
+cargo install cargo-deb
+cargo deb -p gitway
+sudo apt install ./target/debian/gitway_*.deb
+```
+
+On older Debian or Ubuntu releases the packaged Rust toolchain may be too old.
+Install a current toolchain via [rustup](https://rustup.rs) and retry.
+
+### On Fedora
+
+Pre-built `.rpm` packages are produced by the CI release workflow and attached
+to every GitHub release.
+
+**Install a pre-built package:**
+```sh
+# Download the .rpm from the Releases page, then:
+sudo dnf install ./gitway-*.rpm
+```
+
+**Build locally:**
+```sh
+sudo dnf install cargo gcc perl pkgconf-pkg-config
+cargo install cargo-generate-rpm
+cargo build --release -p gitway
+cargo generate-rpm -p gitway-cli
+sudo dnf install ./target/generate-rpm/gitway-*.rpm
+```
+
+### On Gentoo
+
+No ebuild is in the main Gentoo tree yet. The pre-built static musl binary
+works on both glibc and musl Gentoo profiles.
+
+**Pre-built binary:**
+```sh
+# Download and install from the Releases page, then:
+sudo install -m755 gitway          /usr/local/bin/gitway
+sudo install -m755 gitway-keygen   /usr/local/bin/gitway-keygen
+sudo install -m755 gitway-add      /usr/local/bin/gitway-add
+```
+
+**Build from source:**
+```sh
+emerge dev-lang/rust
+cargo install gitway gitway-keygen
+```
+
+### On openSUSE
+
+Pre-built `.rpm` packages are produced by the CI release workflow and attached
+to every GitHub release.
+
+**Install a pre-built package:**
+```sh
+# Download the .rpm from the Releases page, then:
+sudo zypper install ./gitway-*.rpm
+```
+
+**Build locally:**
+```sh
+sudo zypper install cargo gcc perl pkg-config
+cargo install cargo-generate-rpm
+cargo build --release -p gitway
+cargo generate-rpm -p gitway-cli
+sudo zypper install ./target/generate-rpm/gitway-*.rpm
+```
+
+### On Windows
+
+Pre-built Windows binaries are attached to every GitHub release as a `.zip`
+archive.
+
+**Install a pre-built binary (recommended):**
+
+1. Download `gitway-windows-x86_64.zip` from the
+   [Releases page](https://github.com/steelbore/gitway/releases/latest).
+2. Extract the archive and place `gitway.exe`, `gitway-keygen.exe`, and
+   `gitway-add.exe` in a directory of your choice (e.g. `C:\tools\gitway\`).
+3. Add that directory to your **System** `PATH` via
+   *System Properties → Environment Variables → System variables → Path → Edit*.
+   Using the System PATH (not the User PATH) ensures IDEs and non-interactive
+   processes launched by Windows can find `gitway`.
+4. Open a new terminal and verify: `gitway --test`
+
+**Build from source:**
+
+`aws-lc-rs` requires [NASM](https://www.nasm.us/) during compilation.
+Install it before running `cargo install`:
+
+```powershell
+winget install nasm
+# or: choco install nasm
+# then restart the terminal so nasm.exe is on PATH
+cargo install gitway gitway-keygen
+```
+
+**Agent on Windows:**
+
+The Gitway agent uses the Windows named-pipe transport
+(`\\.\pipe\gitway-agent.<PID>` by default), compatible with
+OpenSSH for Windows's `\\.\pipe\openssh-ssh-agent`.
+
+Background daemon mode (auto-detach) is Unix-only. To keep the agent running
+on Windows, start it in a separate terminal with `-D` and leave it open:
+
+```powershell
+gitway agent start -D
+```
+
+To stop it, press `Ctrl+C` in that terminal, or use `Stop-Process` / Task Manager.
+For an always-on agent, wrap `gitway agent start -D` in a Windows service using
+a tool such as NSSM or a scheduled task with *Run whether user is logged on or not*.
+
 ### On NixOS
 
 Gitway exposes a flake at `github:steelbore/gitway`. Three install paths
