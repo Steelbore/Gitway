@@ -3,7 +3,7 @@
 #
 # Jobs:
 #   check   — cargo check (fast fail on type errors), Linux only
-#   lint    — cargo clippy -D warnings + rustfmt --check, Linux only
+#   lint    — cargo clippy -D warnings on Linux + Windows; rustfmt --check on Linux
 #   test    — cargo test (unit + doc tests) on Linux, macOS, and Windows
 #   msrv    — cargo check on rust-version from Cargo.toml (currently 1.85)
 #
@@ -47,10 +47,22 @@ jobs:
       - name: cargo check
         run: cargo check --all-targets
 
-  # ── Lint (Linux) ────────────────────────────────────────────────────────────
+  # ── Lint (Linux + Windows) ──────────────────────────────────────────────────
+  #
+  # Clippy is run on both Linux and Windows because cfg-gated code (e.g.
+  # `#[cfg(unix)]` blocks and Windows-only async fns) can produce real
+  # `unused_imports` / `unused_async` errors that fire only on one platform.
+  # Running the same `-D warnings` lint on Windows catches that class of
+  # regression before it lands.  Formatting is platform-independent, so
+  # `cargo fmt --check` stays Linux-only to avoid noise from CRLF
+  # line-ending differences on Windows runners.
   lint:
-    name: clippy + fmt
-    runs-on: ubuntu-latest
+    name: clippy + fmt (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,6 +82,11 @@ jobs:
         shell: bash
         run: rustup component add clippy rustfmt
 
+      # aws-lc-rs requires nasm on Windows — same as the `test` job.
+      - name: Install nasm (Windows only)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -84,6 +101,7 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       - name: cargo fmt check
+        if: runner.os == 'Linux'
         run: cargo fmt --all --check
 
   # ── Unit + doc tests (Linux, macOS, Windows) ────────────────────────────────
