@@ -10,7 +10,7 @@
 # Install into your NixOS system or home-manager profile:
 #   nix profile install github:steelbore/gitway
 {
-  description = "Purpose-built SSH transport client for Git hosting services (GitHub, GitLab, Codeberg)";
+  description = "Pure-Rust SSH toolkit for Git: transport, keys, signing, agent";
 
   inputs = {
     nixpkgs.url     = "github:NixOS/nixpkgs/nixos-unstable";
@@ -51,7 +51,7 @@
         # (the legacy stubs were removed in 2025).
 
         meta = {
-          description = "Purpose-built SSH transport client for Git hosting services";
+          description = "Pure-Rust SSH toolkit for Git: transport, keys, signing, agent";
           homepage    = "https://github.com/steelbore/gitway";
           license     = pkgs.lib.licenses.gpl3Plus;
           # TODO: once the upstream maintainer (github.com/UnbreakableMJ) has a

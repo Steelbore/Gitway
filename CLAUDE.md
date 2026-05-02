@@ -1,8 +1,10 @@
 # CLAUDE.md — Gitway
 
-Gitway is a purpose-built SSH transport client for Git hosting services (GitHub,
-GitLab, Codeberg, and self-hosted instances).  It replaces the general-purpose
-`ssh` binary in the Git transport pipeline.
+Gitway is a pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
+It replaces the general-purpose `ssh` binary in the Git transport pipeline,
+plus the subset of `ssh-keygen`, `ssh-add`, and `ssh-agent` that day-to-day
+Git workflows need.  Works against GitHub, GitLab, Codeberg, AUR, sourcehut,
+and self-hosted Git instances.
 
 ## Workspace layout
 

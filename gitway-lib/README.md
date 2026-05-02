@@ -1,7 +1,7 @@
 # gitway-lib
 
-Core SSH transport library for Git operations against GitHub and GitHub Enterprise
-Server (GHE). Written in pure Rust on top of [russh](https://docs.rs/russh) v0.59.
+Pure-Rust SSH library for Git: transport, keys, signing, agent. Built on
+[russh](https://docs.rs/russh) v0.59.
 
 Part of the [Gitway](https://github.com/steelbore/gitway) project.
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
 name        = "gitway"
-description = "Purpose-built SSH transport client for Git hosting services (GitHub, GitLab, Codeberg)."
+description = "Pure-Rust SSH toolkit for Git: transport, keys, signing, agent."
 keywords    = ["ssh", "git", "github", "gitlab", "cli"]
 categories  = ["command-line-utilities", "network-programming"]
 readme      = "README.md"
