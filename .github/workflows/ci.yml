@@ -20,6 +20,19 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Override `.cargo/config.toml`'s `rustflags = ["-C", "target-cpu=native"]`
+  # for CI.  GitHub Actions runner pools are heterogeneous: a build artifact
+  # compiled on a runner with newer instructions (e.g. AVX-512) gets cached,
+  # then restored on a different runner that lacks them and crashes with
+  # `STATUS_ILLEGAL_INSTRUCTION` (0xc000001d).  We hit this repeatedly on the
+  # Windows pool across PRs #4, #6, and #7, requiring manual cache deletes.
+  #
+  # Setting `RUSTFLAGS` (even to an empty string) makes Cargo ignore the
+  # `[build] rustflags` table in `.cargo/config.toml`, so rustc falls back
+  # to its default generic-x86_64 baseline that any runner can execute.
+  # Local-dev behaviour is unaffected — devs still get `target-cpu=native`
+  # via the config file unless they export `RUSTFLAGS` themselves.
+  RUSTFLAGS: ""
 
 jobs:
   # ── Fast type-check (Linux) ─────────────────────────────────────────────────
