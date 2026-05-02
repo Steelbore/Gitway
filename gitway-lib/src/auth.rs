@@ -13,6 +13,7 @@
 //! the caller (the CLI) can prompt for a passphrase without this library
 //! depending on terminal I/O.
 
+#[cfg(unix)]
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

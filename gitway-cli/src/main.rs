@@ -615,6 +615,15 @@ fn run_describe() -> u32 {
 ///   [`GitwaySession::authenticate_with_passphrase`] directly after connecting.
 /// - `Ok(None)` — agent will handle auth, or no file-based key is involved;
 ///   use the normal [`authenticate_with_prompt`] path.
+#[cfg_attr(
+    not(unix),
+    expect(
+        clippy::unused_async,
+        reason = "the agent-availability check that requires `.await` is inside \
+                  a `#[cfg(unix)]` block; the function stays `async` on every \
+                  platform so call sites can `await` it uniformly."
+    )
+)]
 async fn maybe_collect_passphrase(
     config: &GitwayConfig,
 ) -> Result<Option<(Zeroizing<String>, std::path::PathBuf)>, GitwayError> {
