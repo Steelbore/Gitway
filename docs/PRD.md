@@ -6,7 +6,7 @@
 
 # **1\. Overview**
 
-Gitway is a purpose-built SSH transport client for Git operations against GitHub, GitLab, Codeberg, and self-hosted Git instances. Written in Rust on top of the russh library (v0.59.0), it replaces the general-purpose `ssh` binary in the Git transport pipeline. By narrowing scope to exactly what Git needs — public-key authentication, a single exec channel, bidirectional stream relay, SSHSIG commit signing, and key/agent management — Gitway eliminates external C dependencies, ships as a single static binary, and enforces security defaults (pinned host keys, modern algorithms only) that a general-purpose SSH client cannot.
+Gitway is a pure-Rust SSH toolkit for Git: transport, keys, signing, agent. Built on the russh library (v0.59.0), it replaces the general-purpose `ssh` binary in the Git transport pipeline, plus the subset of `ssh-keygen`, `ssh-add`, and `ssh-agent` that day-to-day Git workflows need. Works against GitHub, GitLab, Codeberg, AUR, sourcehut, and self-hosted Git instances. By narrowing scope to exactly what Git needs — public-key authentication, a single exec channel, bidirectional stream relay, SSHSIG commit signing, and key/agent management — Gitway eliminates external C dependencies, ships as a single static binary, and enforces security defaults (pinned host keys, modern algorithms only) that a general-purpose SSH client cannot.
 
 Starting with the v0.4 scope defined in §5.7, Gitway also replaces the subset of OpenSSH's `ssh-keygen`, `ssh-add`, and `ssh-agent` that day-to-day git workflows require, so a minimal dev machine needs only `git` + `gitway` for a fully SSH-backed, signed-commit workflow.
 

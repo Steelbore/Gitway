@@ -358,7 +358,7 @@ pub struct AgentStopArgs {
 
 // ── Main CLI struct ───────────────────────────────────────────────────────────
 
-/// Gitway — purpose-built SSH transport client for Git hosting services.
+/// Gitway — pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
 ///
 /// Acts as a drop-in replacement for `ssh` when used with `GIT_SSH_COMMAND`
 /// or `core.sshCommand`.  Supports GitHub, GitLab, Codeberg, and any
@@ -373,7 +373,7 @@ pub struct AgentStopArgs {
 #[command(
     name    = "gitway",
     version,
-    about   = "Purpose-built SSH transport client for Git operations against GitHub, GitLab, and Codeberg.",
+    about   = "Pure-Rust SSH toolkit for Git: transport, keys, signing, agent.",
     long_about = None,
     // Allow unknown arguments beginning with `-o` for OpenSSH compatibility.
     // Any unrecognised args are collected into `extra_opts` below.

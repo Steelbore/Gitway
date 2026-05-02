@@ -7,8 +7,8 @@
 
 ## 1. What Gitway is
 
-Gitway is a purpose-built SSH toolkit for Git workflows, written in Rust. It
-started as a drop-in transport replacement for `ssh` and has grown into a
+Gitway is a pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
+It started as a drop-in transport replacement for `ssh` and has grown into a
 complete OpenSSH alternative for the Git use case: generate keys, SSH-sign
 commits, manage agent identities, and run the agent itself — all from Gitway's
 own binaries, with no `openssh-clients` on the box.

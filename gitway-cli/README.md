@@ -1,6 +1,6 @@
 # gitway
 
-`gitway` is a purpose-built SSH transport client for Git hosting services.
+`gitway` is a pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
 
 It is designed as a drop-in replacement for `ssh` in Git workflows with a
 security-first default posture:

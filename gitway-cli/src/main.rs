@@ -429,7 +429,7 @@ fn run_schema() -> u32 {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://github.com/steelbore/gitway/schema/v1",
         "title": "gitway",
-        "description": "Purpose-built SSH transport client for Git hosting services",
+        "description": "Pure-Rust SSH toolkit for Git: transport, keys, signing, agent",
         "version": env!("CARGO_PKG_VERSION"),
         "commands": [
             {
@@ -541,7 +541,7 @@ fn run_describe() -> u32 {
     let manifest = serde_json::json!({
         "tool": "gitway",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Purpose-built SSH transport client for Git hosting services (GitHub, GitLab, Codeberg)",
+        "description": "Pure-Rust SSH toolkit for Git: transport, keys, signing, agent",
         "commands": [
             {
                 "name": "gitway <host> <command...>",

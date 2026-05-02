@@ -1,6 +1,6 @@
 ---
 name: gitway
-description: SSH transport client for Git hosting services (GitHub, GitLab, Codeberg)
+description: Pure-Rust SSH toolkit for Git: transport, keys, signing, agent
 version: "0.6.0"
 commands:
   - name: gitway --test

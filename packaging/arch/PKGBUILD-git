@@ -11,7 +11,7 @@
 pkgname=gitway-git
 pkgver=r0.HEAD
 pkgrel=1
-pkgdesc="Purpose-built SSH transport client for Git hosting services (GitHub, GitLab, Codeberg) — git HEAD"
+pkgdesc="Pure-Rust SSH toolkit for Git: transport, keys, signing, agent — git HEAD"
 arch=('x86_64' 'aarch64')
 url="https://github.com/steelbore/gitway"
 license=('GPL-3.0-or-later')

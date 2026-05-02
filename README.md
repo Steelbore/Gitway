@@ -1,7 +1,6 @@
 # Gitway
 
-Purpose-built SSH transport client for Git operations against GitHub and GitHub
-Enterprise Server (GHE).
+Pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
 
 [![CI](https://github.com/steelbore/gitway/actions/workflows/ci.yml/badge.svg)](https://github.com/steelbore/gitway/actions/workflows/ci.yml)
 [![Crates.io: gitway](https://img.shields.io/crates/v/gitway.svg)](https://crates.io/crates/gitway)

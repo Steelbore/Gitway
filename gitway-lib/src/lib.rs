@@ -4,11 +4,13 @@
 #![forbid(unsafe_code)]
 //! # gitway-lib
 //!
-//! Purpose-built SSH transport library for Git operations against GitHub,
-//! GitLab, Codeberg, and self-hosted Git instances.
+//! Pure-Rust SSH library for Git: transport, keys, signing, agent.
 //!
-//! Written in pure Rust on top of [`russh`](https://docs.rs/russh) v0.59, it
-//! replaces the general-purpose `ssh` binary in the Git transport pipeline.
+//! Built on [`russh`](https://docs.rs/russh) v0.59, it replaces the
+//! general-purpose `ssh` binary in the Git transport pipeline, plus the
+//! subset of `ssh-keygen`, `ssh-add`, and `ssh-agent` that day-to-day Git
+//! workflows need.  Works against GitHub, GitLab, Codeberg, AUR, sourcehut,
+//! and self-hosted Git instances.
 //!
 //! ## Quick start
 //!
