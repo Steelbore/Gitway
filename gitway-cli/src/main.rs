@@ -27,7 +27,7 @@ use zeroize::{Zeroize as _, Zeroizing};
 #[cfg(unix)]
 use anvil_ssh::auth::connect_agent;
 use anvil_ssh::auth::{find_identity, IdentityResolution};
-use anvil_ssh::{GitwayConfig, GitwayError, GitwaySession};
+use anvil_ssh::{AnvilConfig, AnvilError, AnvilSession};
 
 use cli::{Cli, GitwaySubcommand, OutputFormat};
 
@@ -162,7 +162,7 @@ async fn main() {
                     // Write all errors to stderr so stdout stays clean (NFR-11).
                     eprintln!("gitway: error: {e}");
                     // Actionable "what to do next" line below the error —
-                    // every `GitwayError` kind provides a prescriptive
+                    // every `AnvilError` kind provides a prescriptive
                     // hint (either call-site-specific via `with_hint` or
                     // the plain-English default from `hint()`).  Keeps
                     // the terminal UX readable without needing to re-read
@@ -192,7 +192,7 @@ async fn main() {
 
 // ── Top-level dispatch ────────────────────────────────────────────────────────
 
-async fn run(cli: Cli) -> Result<u32, GitwayError> {
+async fn run(cli: Cli) -> Result<u32, AnvilError> {
     // Handle subcommands first — none of them open an SSH connection.
     let mode = detect_output_mode(&cli, true);
     if let Some(subcommand) = cli.subcommand {
@@ -221,7 +221,7 @@ async fn run(cli: Cli) -> Result<u32, GitwayError> {
     // sourcehut uses each user's login, etc.
     let (parsed_user, host) = parse_user_host(&raw_host);
 
-    let mut config_builder = GitwayConfig::builder(&host)
+    let mut config_builder = AnvilConfig::builder(&host)
         .port(cli.port)
         .verbose(cli.verbose)
         .skip_host_check(cli.insecure_skip_host_check);
@@ -229,7 +229,7 @@ async fn run(cli: Cli) -> Result<u32, GitwayError> {
     // Username precedence (matches OpenSSH `ssh -l`):
     //   1. Explicit `-l/--user` on the command line.
     //   2. The `user@` prefix on the host arg.
-    //   3. The `GitwayConfig` builder default (`git`).
+    //   3. The `AnvilConfig` builder default (`git`).
     if let Some(ref user) = cli.user {
         config_builder = config_builder.username(user.clone());
     } else if let Some(user) = parsed_user {
@@ -252,7 +252,7 @@ async fn run(cli: Cli) -> Result<u32, GitwayError> {
     }
 
     if cli.command.is_empty() {
-        return Err(GitwayError::invalid_config(
+        return Err(AnvilError::invalid_config(
             "no remote command specified; pass a git-upload-pack / git-receive-pack command",
         ));
     }
@@ -266,7 +266,7 @@ async fn run(cli: Cli) -> Result<u32, GitwayError> {
 ///
 /// In JSON mode emits a structured object to stdout; in human mode prints
 /// status lines to stderr (NFR-11).
-async fn run_test(config: &GitwayConfig, mode: OutputMode) -> Result<u32, GitwayError> {
+async fn run_test(config: &AnvilConfig, mode: OutputMode) -> Result<u32, AnvilError> {
     // Collect the passphrase before connecting so the session inactivity
     // timeout does not fire while the user is typing (see `maybe_collect_passphrase`).
     let pre_passphrase = maybe_collect_passphrase(config).await?;
@@ -275,7 +275,7 @@ async fn run_test(config: &GitwayConfig, mode: OutputMode) -> Result<u32, Gitway
         eprintln!("gitway: connecting to {}:{}…", config.host, config.port);
     }
 
-    let mut session = GitwaySession::connect(config).await?;
+    let mut session = AnvilSession::connect(config).await?;
     let fingerprint = session.verified_fingerprint();
 
     if mode == OutputMode::Human {
@@ -291,9 +291,7 @@ async fn run_test(config: &GitwayConfig, mode: OutputMode) -> Result<u32, Gitway
     };
 
     let authenticated = auth_result.is_ok();
-    let no_key = auth_result
-        .as_ref()
-        .is_err_and(GitwayError::is_no_key_found);
+    let no_key = auth_result.as_ref().is_err_and(AnvilError::is_no_key_found);
 
     if mode == OutputMode::Human {
         match &auth_result {
@@ -311,7 +309,7 @@ async fn run_test(config: &GitwayConfig, mode: OutputMode) -> Result<u32, Gitway
             }
             Err(e) => {
                 let _ = session.close().await;
-                return Err(GitwayError::invalid_config(e.to_string()));
+                return Err(AnvilError::invalid_config(e.to_string()));
             }
         }
     }
@@ -353,7 +351,7 @@ async fn run_test(config: &GitwayConfig, mode: OutputMode) -> Result<u32, Gitway
 // ── Normal exec ───────────────────────────────────────────────────────────────
 
 /// Connects, authenticates, and relays a Git command over the SSH channel.
-async fn run_exec(config: &GitwayConfig, command_parts: &[String]) -> Result<u32, GitwayError> {
+async fn run_exec(config: &AnvilConfig, command_parts: &[String]) -> Result<u32, AnvilError> {
     // Join all tokens the same way Git does: space-separated.
     let command = command_parts.join(" ");
 
@@ -361,7 +359,7 @@ async fn run_exec(config: &GitwayConfig, command_parts: &[String]) -> Result<u32
     // timeout does not fire while the user is typing (see `maybe_collect_passphrase`).
     let pre_passphrase = maybe_collect_passphrase(config).await?;
 
-    let mut session = GitwaySession::connect(config).await?;
+    let mut session = AnvilSession::connect(config).await?;
 
     if let Some((passphrase, path)) = pre_passphrase {
         session
@@ -379,11 +377,11 @@ async fn run_exec(config: &GitwayConfig, command_parts: &[String]) -> Result<u32
 // ── --install ─────────────────────────────────────────────────────────────────
 
 /// Writes `core.sshCommand = gitway` to the global Git config (FR-22).
-fn run_install(mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_install(mode: OutputMode) -> Result<u32, AnvilError> {
     let status = std::process::Command::new("git")
         .args(["config", "--global", "core.sshCommand", "gitway"])
         .status()
-        .map_err(GitwayError::from)?;
+        .map_err(AnvilError::from)?;
 
     if status.success() {
         match mode {
@@ -410,7 +408,7 @@ fn run_install(mode: OutputMode) -> Result<u32, GitwayError> {
         }
         Ok(0)
     } else {
-        Err(GitwayError::invalid_config(
+        Err(AnvilError::invalid_config(
             "git config --global core.sshCommand failed",
         ))
     }
@@ -626,7 +624,7 @@ fn run_describe() -> u32 {
 /// # Returns
 ///
 /// - `Ok(Some((passphrase, path)))` — passphrase collected; call
-///   [`GitwaySession::authenticate_with_passphrase`] directly after connecting.
+///   [`AnvilSession::authenticate_with_passphrase`] directly after connecting.
 /// - `Ok(None)` — agent will handle auth, or no file-based key is involved;
 ///   use the normal [`authenticate_with_prompt`] path.
 #[cfg_attr(
@@ -639,8 +637,8 @@ fn run_describe() -> u32 {
     )
 )]
 async fn maybe_collect_passphrase(
-    config: &GitwayConfig,
-) -> Result<Option<(Zeroizing<String>, std::path::PathBuf)>, GitwayError> {
+    config: &AnvilConfig,
+) -> Result<Option<(Zeroizing<String>, std::path::PathBuf)>, AnvilError> {
     // Only relevant when an encrypted key file is found.
     let IdentityResolution::Encrypted { path } = find_identity(config)? else {
         return Ok(None);
@@ -670,9 +668,9 @@ async fn maybe_collect_passphrase(
 /// The passphrase string is wrapped in [`Zeroizing`] so its bytes are
 /// overwritten before the allocation is released (NFR-3).
 async fn authenticate_with_prompt(
-    session: &mut GitwaySession,
-    config: &GitwayConfig,
-) -> Result<(), GitwayError> {
+    session: &mut AnvilSession,
+    config: &AnvilConfig,
+) -> Result<(), AnvilError> {
     // Try normal auto-discovery first.
     match session.authenticate_best(config).await {
         Ok(()) => return Ok(()),
@@ -687,7 +685,7 @@ async fn authenticate_with_prompt(
         path: encrypted_path,
     } = find_identity(config)?
     else {
-        return Err(GitwayError::no_key_found());
+        return Err(AnvilError::no_key_found());
     };
 
     // Zeroizing<String> zeroes the passphrase bytes when the variable is
@@ -707,7 +705,7 @@ async fn authenticate_with_prompt(
 ///
 /// The returned string is wrapped in [`Zeroizing`] so the bytes are overwritten
 /// before the allocation is released (NFR-3).
-pub(crate) fn prompt_passphrase(path: &std::path::Path) -> Result<Zeroizing<String>, GitwayError> {
+pub(crate) fn prompt_passphrase(path: &std::path::Path) -> Result<Zeroizing<String>, AnvilError> {
     let prompt = format!("Enter passphrase for {}: ", path.display());
 
     if let Some(passphrase) = try_askpass(&prompt)? {
@@ -721,14 +719,14 @@ pub(crate) fn prompt_passphrase(path: &std::path::Path) -> Result<Zeroizing<Stri
             // spawned by a GUI app.  Give a helpful hint instead of the raw
             // OS error string.
             if e.raw_os_error() == Some(6) || e.kind() == std::io::ErrorKind::Other {
-                GitwayError::invalid_config(
+                AnvilError::invalid_config(
                     "no terminal available for passphrase prompt — \
                      run `ssh-add` to load the key into the SSH agent, \
                      or set SSH_ASKPASS to a GUI passphrase helper \
                      (e.g. ksshaskpass, ssh-askpass-gnome)",
                 )
             } else {
-                GitwayError::from(e)
+                AnvilError::from(e)
             }
         })
 }
@@ -749,7 +747,7 @@ pub(crate) fn prompt_passphrase(path: &std::path::Path) -> Result<Zeroizing<Stri
 /// - Otherwise — use it when a display server (`DISPLAY` or
 ///   `WAYLAND_DISPLAY`) is present **and** stderr is not a terminal
 ///   (i.e., gitway was spawned by a GUI app without a console).
-fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
+fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, AnvilError> {
     use std::io::IsTerminal as _;
 
     let Some(askpass) = std::env::var_os("SSH_ASKPASS") else {
@@ -762,7 +760,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     // This is a cheap check (no I/O) so it runs unconditionally before
     // we decide whether askpass is needed at all.
     if !std::path::Path::new(&askpass).is_absolute() {
-        return Err(GitwayError::invalid_config(format!(
+        return Err(AnvilError::invalid_config(format!(
             "SSH_ASKPASS {} must be an absolute path",
             std::path::Path::new(&askpass).display(),
         )));
@@ -799,7 +797,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
         if let Ok(meta) = std::fs::metadata(std::path::Path::new(&askpass)) {
             // 0o002 = write bit for "other"
             if meta.permissions().mode() & 0o002 != 0 {
-                return Err(GitwayError::invalid_config(format!(
+                return Err(AnvilError::invalid_config(format!(
                     "SSH_ASKPASS {} is world-writable and \
                      cannot be trusted",
                     std::path::Path::new(&askpass).display(),
@@ -817,7 +815,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
         .arg(prompt)
         .output()
         .map_err(|e| {
-            GitwayError::invalid_config(format!(
+            AnvilError::invalid_config(format!(
                 "SSH_ASKPASS program {} could not be launched: {e}",
                 std::path::Path::new(&askpass).display(),
             ))
@@ -831,7 +829,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
 
     if !status.success() {
         stdout.zeroize();
-        return Err(GitwayError::invalid_config(format!(
+        return Err(AnvilError::invalid_config(format!(
             "SSH_ASKPASS program {} exited with status {status}",
             std::path::Path::new(&askpass).display(),
         )));
@@ -844,7 +842,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
         raw.trim_end_matches('\n').to_owned()
     } else {
         stdout.zeroize();
-        return Err(GitwayError::invalid_config(
+        return Err(AnvilError::invalid_config(
             "SSH_ASKPASS program returned non-UTF-8 output",
         ));
     };
@@ -858,7 +856,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     // cause an opaque "SshKey: cryptographic error" from the key-decryption
     // layer; return a clear, actionable message instead.
     if passphrase.is_empty() {
-        return Err(GitwayError::invalid_config(
+        return Err(AnvilError::invalid_config(
             "SSH_ASKPASS program returned an empty passphrase — \
              the dialog was cancelled or the program does not support \
              SSH key passphrase prompts; \
@@ -877,7 +875,7 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
 ///
 /// Git invokes SSH with the full connection string (`git@github.com`,
 /// `aur@aur.archlinux.org`, etc.).  Returns the username portion when
-/// present so the caller can pass it to `GitwayConfig::username` instead
+/// present so the caller can pass it to `AnvilConfig::username` instead
 /// of falling through to the `git` default.  An empty username (`@host`)
 /// is treated as no username — matches OpenSSH's `parse_uri` behaviour.
 ///
@@ -920,7 +918,7 @@ mod tests {
     fn parse_user_host_extracts_non_git_username() {
         // The whole point of the flag: AUR uses `aur`, sourcehut uses the
         // user's login, etc.  The CLI must surface the parsed user so
-        // `GitwayConfig::username` is set instead of falling back to `git`.
+        // `AnvilConfig::username` is set instead of falling back to `git`.
         assert_eq!(
             parse_user_host("aur@aur.archlinux.org"),
             (Some("aur".to_owned()), "aur.archlinux.org".to_owned())

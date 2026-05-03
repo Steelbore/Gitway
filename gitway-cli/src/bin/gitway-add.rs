@@ -41,7 +41,7 @@ use zeroize::Zeroizing;
 
 use anvil_ssh::agent::client::Agent;
 use anvil_ssh::keygen::fingerprint;
-use anvil_ssh::GitwayError;
+use anvil_ssh::AnvilError;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
         Err(e) => {
             eprintln!("gitway-add: error: {e}");
-            // Actionable "what to do next" line — every `GitwayError`
+            // Actionable "what to do next" line — every `AnvilError`
             // kind provides a prescriptive hint.  Call sites that know
             // the context attach a more specific hint via `with_hint`.
             eprintln!("gitway-add: what to do: {}", e.hint());
@@ -65,7 +65,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: &[String]) -> Result<u32, GitwayError> {
+fn run(args: &[String]) -> Result<u32, AnvilError> {
     let parsed = Parsed::from_args(args)?;
     let mut agent = Agent::from_env()?;
 
@@ -100,7 +100,7 @@ struct Parsed {
 }
 
 impl Parsed {
-    fn from_args(args: &[String]) -> Result<Self, GitwayError> {
+    fn from_args(args: &[String]) -> Result<Self, AnvilError> {
         let mut hash = HashAlg::Sha256;
         let mut lifetime: Option<Duration> = None;
         let mut confirm = false;
@@ -143,7 +143,7 @@ impl Parsed {
                 "-t" => {
                     let secs = take(args, &mut i, "-t")?;
                     let n: u64 = secs.parse().map_err(|_e: std::num::ParseIntError| {
-                        GitwayError::invalid_config(format!(
+                        AnvilError::invalid_config(format!(
                             "-t requires an integer number of seconds, got {secs:?}"
                         ))
                     })?;
@@ -155,7 +155,7 @@ impl Parsed {
                         "sha256" => HashAlg::Sha256,
                         "sha512" => HashAlg::Sha512,
                         other => {
-                            return Err(GitwayError::invalid_config(format!(
+                            return Err(AnvilError::invalid_config(format!(
                                 "-E requires sha256 or sha512, got {other:?}"
                             )));
                         }
@@ -177,7 +177,7 @@ impl Parsed {
                     }
                 }
                 other if other.starts_with('-') => {
-                    return Err(GitwayError::invalid_config(format!(
+                    return Err(AnvilError::invalid_config(format!(
                         "unsupported flag: {other}"
                     )));
                 }
@@ -206,9 +206,9 @@ impl Parsed {
     }
 }
 
-fn set_mode(slot: &mut Option<Mode>, new: Mode, flag: &str) -> Result<(), GitwayError> {
+fn set_mode(slot: &mut Option<Mode>, new: Mode, flag: &str) -> Result<(), AnvilError> {
     if slot.is_some() {
-        return Err(GitwayError::invalid_config(format!(
+        return Err(AnvilError::invalid_config(format!(
             "{flag} conflicts with a previous mode flag"
         )));
     }
@@ -216,19 +216,19 @@ fn set_mode(slot: &mut Option<Mode>, new: Mode, flag: &str) -> Result<(), Gitway
     Ok(())
 }
 
-fn take(args: &[String], i: &mut usize, flag: &str) -> Result<String, GitwayError> {
+fn take(args: &[String], i: &mut usize, flag: &str) -> Result<String, AnvilError> {
     *i += 1;
     let v = args
         .get(*i)
         .cloned()
-        .ok_or_else(|| GitwayError::invalid_config(format!("{flag} requires a value")))?;
+        .ok_or_else(|| AnvilError::invalid_config(format!("{flag} requires a value")))?;
     *i += 1;
     Ok(v)
 }
 
 // ── Operations ────────────────────────────────────────────────────────────────
 
-fn list(agent: &mut Agent, full: bool, hash: HashAlg) -> Result<u32, GitwayError> {
+fn list(agent: &mut Agent, full: bool, hash: HashAlg) -> Result<u32, AnvilError> {
     let ids = agent.list()?;
     if ids.is_empty() {
         println!("The agent has no identities.");
@@ -239,7 +239,7 @@ fn list(agent: &mut Agent, full: bool, hash: HashAlg) -> Result<u32, GitwayError
             let line = id
                 .public_key
                 .to_openssh()
-                .map_err(|e| GitwayError::signing(format!("serialize failed: {e}")))?;
+                .map_err(|e| AnvilError::signing(format!("serialize failed: {e}")))?;
             println!("{line}");
         } else {
             println!(
@@ -253,13 +253,11 @@ fn list(agent: &mut Agent, full: bool, hash: HashAlg) -> Result<u32, GitwayError
     Ok(0)
 }
 
-fn remove_one(agent: &mut Agent, path: &Path) -> Result<u32, GitwayError> {
+fn remove_one(agent: &mut Agent, path: &Path) -> Result<u32, AnvilError> {
     let raw = fs::read_to_string(path)?;
     let public_key = PublicKey::from_openssh(raw.trim())
         .or_else(|_| PrivateKey::from_openssh(&raw).map(|sk| sk.public_key().clone()))
-        .map_err(|e| {
-            GitwayError::invalid_config(format!("cannot parse {}: {e}", path.display()))
-        })?;
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse {}: {e}", path.display())))?;
     agent.remove(&public_key)?;
     println!(
         "Identity removed: {}",
@@ -268,28 +266,28 @@ fn remove_one(agent: &mut Agent, path: &Path) -> Result<u32, GitwayError> {
     Ok(0)
 }
 
-fn remove_all(agent: &mut Agent) -> Result<u32, GitwayError> {
+fn remove_all(agent: &mut Agent) -> Result<u32, AnvilError> {
     agent.remove_all()?;
     println!("All identities removed.");
     Ok(0)
 }
 
-fn lock_unlock(agent: &mut Agent, lock: bool) -> Result<u32, GitwayError> {
+fn lock_unlock(agent: &mut Agent, lock: bool) -> Result<u32, AnvilError> {
     let pp = if lock {
         let first = rpassword::prompt_password("Enter lock passphrase: ")
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)?;
+            .map_err(AnvilError::from)?;
         let confirm = rpassword::prompt_password("Confirm lock passphrase: ")
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)?;
+            .map_err(AnvilError::from)?;
         if *first != *confirm {
-            return Err(GitwayError::invalid_config("passphrases did not match"));
+            return Err(AnvilError::invalid_config("passphrases did not match"));
         }
         first
     } else {
         rpassword::prompt_password("Enter unlock passphrase: ")
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)?
+            .map_err(AnvilError::from)?
     };
 
     if lock {
@@ -307,7 +305,7 @@ fn add(
     paths: &[PathBuf],
     lifetime: Option<Duration>,
     confirm: bool,
-) -> Result<u32, GitwayError> {
+) -> Result<u32, AnvilError> {
     for path in paths {
         let key = load_and_decrypt(path)?;
         agent.add(&key, lifetime, confirm)?;
@@ -316,11 +314,10 @@ fn add(
     Ok(0)
 }
 
-fn load_and_decrypt(path: &Path) -> Result<PrivateKey, GitwayError> {
+fn load_and_decrypt(path: &Path) -> Result<PrivateKey, AnvilError> {
     let pem = fs::read_to_string(path)?;
-    let key = PrivateKey::from_openssh(&pem).map_err(|e| {
-        GitwayError::invalid_config(format!("cannot parse {}: {e}", path.display()))
-    })?;
+    let key = PrivateKey::from_openssh(&pem)
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse {}: {e}", path.display())))?;
     if !key.is_encrypted() {
         return Ok(key);
     }
@@ -329,10 +326,10 @@ fn load_and_decrypt(path: &Path) -> Result<PrivateKey, GitwayError> {
     } else {
         rpassword::prompt_password(format!("Enter passphrase for {}: ", path.display()))
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)?
+            .map_err(AnvilError::from)?
     };
     key.decrypt(pp.as_bytes())
-        .map_err(|e| GitwayError::signing(format!("decrypt failed: {e}")))
+        .map_err(|e| AnvilError::signing(format!("decrypt failed: {e}")))
 }
 
 /// When stdin is not a terminal (e.g. the shim is invoked from a script),
@@ -353,9 +350,9 @@ fn passphrase_from_stdin_if_not_tty() -> Option<Zeroizing<String>> {
     Some(Zeroizing::new(trimmed))
 }
 
-fn default_key_paths() -> Result<Vec<PathBuf>, GitwayError> {
+fn default_key_paths() -> Result<Vec<PathBuf>, AnvilError> {
     let home =
-        dirs::home_dir().ok_or_else(|| GitwayError::invalid_config("cannot determine $HOME"))?;
+        dirs::home_dir().ok_or_else(|| AnvilError::invalid_config("cannot determine $HOME"))?;
     let candidates = ["id_ed25519", "id_ecdsa", "id_rsa"];
     let found: Vec<_> = candidates
         .iter()
@@ -363,7 +360,7 @@ fn default_key_paths() -> Result<Vec<PathBuf>, GitwayError> {
         .filter(|p| p.exists())
         .collect();
     if found.is_empty() {
-        return Err(GitwayError::no_key_found());
+        return Err(AnvilError::no_key_found());
     }
     Ok(found)
 }

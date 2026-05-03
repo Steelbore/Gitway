@@ -49,7 +49,7 @@ use anvil_ssh::agent::client::Agent;
 use anvil_ssh::allowed_signers::AllowedSigners;
 use anvil_ssh::keygen::{self, KeyType};
 use anvil_ssh::sshsig;
-use anvil_ssh::GitwayError;
+use anvil_ssh::AnvilError;
 
 // ── Top-level dispatch ────────────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ fn main() -> ExitCode {
         }
         Err(e) => {
             eprintln!("gitway-keygen: error: {e}");
-            // Actionable "what to do next" line — every `GitwayError`
+            // Actionable "what to do next" line — every `AnvilError`
             // kind provides a prescriptive hint.  Call sites that know
             // the context attach a more specific hint via `with_hint`.
             eprintln!("gitway-keygen: what to do: {}", e.hint());
@@ -78,7 +78,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: &[String]) -> Result<u32, GitwayError> {
+fn run(args: &[String]) -> Result<u32, AnvilError> {
     let parsed = Parsed::from_args(args)?;
     match parsed.mode {
         Mode::GenerateKey => run_generate(&parsed),
@@ -135,7 +135,7 @@ impl Parsed {
                   it across helper fns would obscure the match-on-flag-name \
                   structure that mirrors ssh-keygen's own argv handling."
     )]
-    fn from_args(args: &[String]) -> Result<Self, GitwayError> {
+    fn from_args(args: &[String]) -> Result<Self, AnvilError> {
         let mut p = Self {
             mode: Mode::GenerateKey,
             key_type: None,
@@ -165,7 +165,7 @@ impl Parsed {
                 "-b" => {
                     let v = take_value(args, &mut i, "-b")?;
                     p.bits = Some(v.parse().map_err(|_e: std::num::ParseIntError| {
-                        GitwayError::invalid_config(format!("-b requires an integer, got {v:?}"))
+                        AnvilError::invalid_config(format!("-b requires an integer, got {v:?}"))
                     })?);
                 }
                 "-f" => p.file = Some(PathBuf::from(take_value(args, &mut i, "-f")?)),
@@ -193,7 +193,7 @@ impl Parsed {
                         "sha256" => HashAlg::Sha256,
                         "sha512" => HashAlg::Sha512,
                         other => {
-                            return Err(GitwayError::invalid_config(format!(
+                            return Err(AnvilError::invalid_config(format!(
                                 "-E requires sha256 or sha512, got {other:?}"
                             )));
                         }
@@ -237,7 +237,7 @@ impl Parsed {
                     break;
                 }
                 other if other.starts_with('-') => {
-                    return Err(GitwayError::invalid_config(format!(
+                    return Err(AnvilError::invalid_config(format!(
                         "unsupported flag: {other}"
                     )));
                 }
@@ -263,7 +263,7 @@ impl Parsed {
                 "check-novalidate" => Mode::SshSigCheckNoValidate,
                 "find-principals" => Mode::SshSigFindPrincipals,
                 other => {
-                    return Err(GitwayError::invalid_config(format!(
+                    return Err(AnvilError::invalid_config(format!(
                         "-Y requires sign|verify|check-novalidate|find-principals, got {other:?}"
                     )));
                 }
@@ -281,21 +281,21 @@ impl Parsed {
     }
 }
 
-fn take_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, GitwayError> {
+fn take_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, AnvilError> {
     *i += 1;
     let v = args
         .get(*i)
         .cloned()
-        .ok_or_else(|| GitwayError::invalid_config(format!("{flag} requires a value")))?;
+        .ok_or_else(|| AnvilError::invalid_config(format!("{flag} requires a value")))?;
     *i += 1;
     Ok(v)
 }
 
 // ── Subcommand bodies ─────────────────────────────────────────────────────────
 
-fn run_generate(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_generate(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(file) = p.file.clone() else {
-        return Err(GitwayError::invalid_config("-f FILE is required"));
+        return Err(AnvilError::invalid_config("-f FILE is required"));
     };
     let kind = parse_kind(p.key_type.as_deref().unwrap_or("ed25519"), p.bits)?;
     let comment = p.comment.clone().unwrap_or_else(default_comment);
@@ -312,7 +312,7 @@ fn run_generate(p: &Parsed) -> Result<u32, GitwayError> {
                 file.display()
             ))
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)?;
+            .map_err(AnvilError::from)?;
             if pp.is_empty() {
                 None
             } else {
@@ -337,9 +337,9 @@ fn run_generate(p: &Parsed) -> Result<u32, GitwayError> {
     Ok(0)
 }
 
-fn run_fingerprint(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_fingerprint(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(file) = p.file.clone() else {
-        return Err(GitwayError::invalid_config("-f FILE is required"));
+        return Err(AnvilError::invalid_config("-f FILE is required"));
     };
     let public = load_public_key(&file)?;
     let fp = keygen::fingerprint(&public, p.fingerprint_hash);
@@ -353,39 +353,39 @@ fn run_fingerprint(p: &Parsed) -> Result<u32, GitwayError> {
     Ok(0)
 }
 
-fn run_extract_public(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_extract_public(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(file) = p.file.clone() else {
-        return Err(GitwayError::invalid_config("-f FILE is required"));
+        return Err(AnvilError::invalid_config("-f FILE is required"));
     };
     let pem = fs::read_to_string(&file)?;
     let mut key = PrivateKey::from_openssh(&pem)
-        .map_err(|e| GitwayError::invalid_config(format!("cannot parse key: {e}")))?;
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse key: {e}")))?;
     if key.is_encrypted() {
         let pp: Zeroizing<String> = match &p.old_passphrase {
             Some(s) => Zeroizing::new(s.clone()),
             None => {
                 rpassword::prompt_password(format!("Enter passphrase for {}: ", file.display()))
                     .map(Zeroizing::new)
-                    .map_err(GitwayError::from)?
+                    .map_err(AnvilError::from)?
             }
         };
         key = key
             .decrypt(pp.as_bytes())
-            .map_err(|e| GitwayError::signing(format!("decrypt failed: {e}")))?;
+            .map_err(|e| AnvilError::signing(format!("decrypt failed: {e}")))?;
     }
     let public_line = key
         .public_key()
         .to_openssh()
-        .map_err(|e| GitwayError::signing(format!("serialize failed: {e}")))?;
+        .map_err(|e| AnvilError::signing(format!("serialize failed: {e}")))?;
     // ssh-keygen -y writes to stdout with a trailing newline.
     let mut out = io::stdout().lock();
     writeln!(out, "{public_line}")?;
     Ok(0)
 }
 
-fn run_change_passphrase(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_change_passphrase(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(file) = p.file.clone() else {
-        return Err(GitwayError::invalid_config("-f FILE is required"));
+        return Err(AnvilError::invalid_config("-f FILE is required"));
     };
     let old = if let Some(s) = &p.old_passphrase {
         Some(Zeroizing::new(s.clone()))
@@ -393,7 +393,7 @@ fn run_change_passphrase(p: &Parsed) -> Result<u32, GitwayError> {
         Some(
             rpassword::prompt_password(format!("Enter old passphrase for {}: ", file.display()))
                 .map(Zeroizing::new)
-                .map_err(GitwayError::from)?,
+                .map_err(AnvilError::from)?,
         )
     };
     let new = match &p.new_passphrase {
@@ -402,7 +402,7 @@ fn run_change_passphrase(p: &Parsed) -> Result<u32, GitwayError> {
         None => {
             let pp = rpassword::prompt_password("Enter new passphrase (empty for none): ")
                 .map(Zeroizing::new)
-                .map_err(GitwayError::from)?;
+                .map_err(AnvilError::from)?;
             if pp.is_empty() {
                 None
             } else {
@@ -415,14 +415,14 @@ fn run_change_passphrase(p: &Parsed) -> Result<u32, GitwayError> {
     Ok(0)
 }
 
-fn run_sign(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_sign(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(file) = p.file.clone() else {
-        return Err(GitwayError::invalid_config(
+        return Err(AnvilError::invalid_config(
             "-f FILE is required for -Y sign",
         ));
     };
     let Some(ns) = p.namespace.clone() else {
-        return Err(GitwayError::invalid_config(
+        return Err(AnvilError::invalid_config(
             "-n NAMESPACE is required for -Y sign",
         ));
     };
@@ -464,10 +464,10 @@ fn run_sign(p: &Parsed) -> Result<u32, GitwayError> {
     let key = load_and_decrypt(&key_file, p.old_passphrase.as_deref())?;
 
     let sig = ssh_key::SshSig::sign(&key, &ns, HashAlg::Sha512, &data)
-        .map_err(|e| GitwayError::signing(format!("sshsig sign failed: {e}")))?;
+        .map_err(|e| AnvilError::signing(format!("sshsig sign failed: {e}")))?;
     let armored = sig
         .to_pem(LineEnding::LF)
-        .map_err(|e| GitwayError::signing(format!("armor failed: {e}")))?;
+        .map_err(|e| AnvilError::signing(format!("armor failed: {e}")))?;
 
     write_sig_output(armored.as_bytes(), sig_out.as_deref())
 }
@@ -484,7 +484,7 @@ fn try_sign_via_agent(
     key_path: &Path,
     data: &[u8],
     namespace: &str,
-) -> Result<Option<String>, GitwayError> {
+) -> Result<Option<String>, AnvilError> {
     if env::var_os("SSH_AUTH_SOCK").is_none_or(|v| v.is_empty()) {
         return Ok(None);
     }
@@ -518,10 +518,10 @@ fn try_sign_via_agent(
 ///    parses the plaintext public-key portion even when the private
 ///    bytes are still encrypted, so we extract the public key without
 ///    needing the passphrase.
-fn load_public_key_for_signing(path: &Path) -> Result<PublicKey, GitwayError> {
+fn load_public_key_for_signing(path: &Path) -> Result<PublicKey, AnvilError> {
     let raw = fs::read_to_string(path).map_err(|e| match e.kind() {
-        io::ErrorKind::NotFound => GitwayError::no_key_found(),
-        _ => GitwayError::from(e),
+        io::ErrorKind::NotFound => AnvilError::no_key_found(),
+        _ => AnvilError::from(e),
     })?;
     if let Ok(pk) = PublicKey::from_openssh(&raw) {
         return Ok(pk);
@@ -529,13 +529,13 @@ fn load_public_key_for_signing(path: &Path) -> Result<PublicKey, GitwayError> {
     let priv_path = resolve_signing_key_path(path)?;
     let priv_raw = fs::read_to_string(&priv_path)?;
     let privkey = PrivateKey::from_openssh(&priv_raw)
-        .map_err(|e| GitwayError::invalid_config(format!("cannot parse signing key: {e}")))?;
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse signing key: {e}")))?;
     Ok(privkey.public_key().clone())
 }
 
 /// Writes the armored SSHSIG to the message-file companion (`.sig`)
 /// when present, else to stdout.
-fn write_sig_output(armored: &[u8], sig_out: Option<&Path>) -> Result<u32, GitwayError> {
+fn write_sig_output(armored: &[u8], sig_out: Option<&Path>) -> Result<u32, AnvilError> {
     if let Some(path) = sig_out {
         fs::write(path, armored)?;
     } else {
@@ -546,21 +546,21 @@ fn write_sig_output(armored: &[u8], sig_out: Option<&Path>) -> Result<u32, Gitwa
     Ok(0)
 }
 
-fn run_verify(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_verify(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(ns) = p.namespace.clone() else {
-        return Err(GitwayError::invalid_config("-n NAMESPACE is required"));
+        return Err(AnvilError::invalid_config("-n NAMESPACE is required"));
     };
     let Some(signer) = p.signer_identity.clone() else {
-        return Err(GitwayError::invalid_config("-I IDENTITY is required"));
+        return Err(AnvilError::invalid_config("-I IDENTITY is required"));
     };
     let Some(sig_path) = p.signature_file.clone() else {
-        return Err(GitwayError::invalid_config("-s SIG is required"));
+        return Err(AnvilError::invalid_config("-s SIG is required"));
     };
     let allowed_path = p
         .allowed_signers
         .clone()
         .or_else(|| p.file.clone())
-        .ok_or_else(|| GitwayError::invalid_config("-f or --allowed-signers is required"))?;
+        .ok_or_else(|| AnvilError::invalid_config("-f or --allowed-signers is required"))?;
 
     let armored = fs::read_to_string(&sig_path)?;
     let allowed = AllowedSigners::load(&allowed_path)?;
@@ -576,12 +576,12 @@ fn run_verify(p: &Parsed) -> Result<u32, GitwayError> {
     Ok(0)
 }
 
-fn run_check_novalidate(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_check_novalidate(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(ns) = p.namespace.clone() else {
-        return Err(GitwayError::invalid_config("-n NAMESPACE is required"));
+        return Err(AnvilError::invalid_config("-n NAMESPACE is required"));
     };
     let Some(sig_path) = p.signature_file.clone() else {
-        return Err(GitwayError::invalid_config("-s SIG is required"));
+        return Err(AnvilError::invalid_config("-s SIG is required"));
     };
     let armored = fs::read_to_string(&sig_path)?;
     let mut data = Vec::new();
@@ -591,18 +591,18 @@ fn run_check_novalidate(p: &Parsed) -> Result<u32, GitwayError> {
     Ok(0)
 }
 
-fn run_find_principals(p: &Parsed) -> Result<u32, GitwayError> {
+fn run_find_principals(p: &Parsed) -> Result<u32, AnvilError> {
     let Some(ns) = p.namespace.clone() else {
-        return Err(GitwayError::invalid_config("-n NAMESPACE is required"));
+        return Err(AnvilError::invalid_config("-n NAMESPACE is required"));
     };
     let Some(sig_path) = p.signature_file.clone() else {
-        return Err(GitwayError::invalid_config("-s SIG is required"));
+        return Err(AnvilError::invalid_config("-s SIG is required"));
     };
     let allowed_path = p
         .allowed_signers
         .clone()
         .or_else(|| p.file.clone())
-        .ok_or_else(|| GitwayError::invalid_config("-f or --allowed-signers is required"))?;
+        .ok_or_else(|| AnvilError::invalid_config("-f or --allowed-signers is required"))?;
     let armored = fs::read_to_string(&sig_path)?;
     let allowed = AllowedSigners::load(&allowed_path)?;
     let principals = sshsig::find_principals(&armored, &allowed, &ns)?;
@@ -614,7 +614,7 @@ fn run_find_principals(p: &Parsed) -> Result<u32, GitwayError> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn parse_kind(s: &str, bits: Option<u32>) -> Result<KeyType, GitwayError> {
+fn parse_kind(s: &str, bits: Option<u32>) -> Result<KeyType, AnvilError> {
     match s.to_ascii_lowercase().as_str() {
         "ed25519" => Ok(KeyType::Ed25519),
         "rsa" => Ok(KeyType::Rsa),
@@ -622,26 +622,24 @@ fn parse_kind(s: &str, bits: Option<u32>) -> Result<KeyType, GitwayError> {
             256 => Ok(KeyType::EcdsaP256),
             384 => Ok(KeyType::EcdsaP384),
             521 => Ok(KeyType::EcdsaP521),
-            other => Err(GitwayError::invalid_config(format!(
+            other => Err(AnvilError::invalid_config(format!(
                 "ECDSA requires -b 256|384|521, got {other}"
             ))),
         },
-        other => Err(GitwayError::invalid_config(format!(
+        other => Err(AnvilError::invalid_config(format!(
             "unsupported key type: {other}"
         ))),
     }
 }
 
-fn load_public_key(path: &Path) -> Result<PublicKey, GitwayError> {
+fn load_public_key(path: &Path) -> Result<PublicKey, AnvilError> {
     let raw = fs::read_to_string(path)?;
     if let Ok(pk) = PublicKey::from_openssh(raw.trim()) {
         return Ok(pk);
     }
     match PrivateKey::from_openssh(&raw) {
         Ok(sk) => Ok(sk.public_key().clone()),
-        Err(e) => Err(GitwayError::invalid_config(format!(
-            "cannot parse key: {e}"
-        ))),
+        Err(e) => Err(AnvilError::invalid_config(format!("cannot parse key: {e}"))),
     }
 }
 
@@ -655,16 +653,16 @@ fn load_public_key(path: &Path) -> Result<PublicKey, GitwayError> {
 ///
 /// # Errors
 ///
-/// Returns [`GitwayError::no_key_found`] if neither `path` nor its
-/// stripped-`.pub` counterpart exists, and [`GitwayError::invalid_config`]
+/// Returns [`AnvilError::no_key_found`] if neither `path` nor its
+/// stripped-`.pub` counterpart exists, and [`AnvilError::invalid_config`]
 /// if the file is neither a private key nor a public key.
-fn resolve_signing_key_path(path: &Path) -> Result<PathBuf, GitwayError> {
+fn resolve_signing_key_path(path: &Path) -> Result<PathBuf, AnvilError> {
     let raw = match fs::read_to_string(path) {
         Ok(r) => r,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            return Err(GitwayError::no_key_found());
+            return Err(AnvilError::no_key_found());
         }
-        Err(e) => return Err(GitwayError::from(e)),
+        Err(e) => return Err(AnvilError::from(e)),
     };
 
     // Private key? Use it directly.
@@ -681,7 +679,7 @@ fn resolve_signing_key_path(path: &Path) -> Result<PathBuf, GitwayError> {
             if candidate.exists() {
                 return Ok(candidate);
             }
-            return Err(GitwayError::invalid_config(format!(
+            return Err(AnvilError::invalid_config(format!(
                 "public-key path {} given for signing, but no private key \
                  found at {}; load the key into an agent (phase 2) or \
                  pass the private-key path directly",
@@ -689,23 +687,23 @@ fn resolve_signing_key_path(path: &Path) -> Result<PathBuf, GitwayError> {
                 candidate.display(),
             )));
         }
-        return Err(GitwayError::invalid_config(format!(
+        return Err(AnvilError::invalid_config(format!(
             "public-key path {} given for signing, but does not end in \
              `.pub`; cannot locate the matching private key",
             path.display(),
         )));
     }
 
-    Err(GitwayError::invalid_config(format!(
+    Err(AnvilError::invalid_config(format!(
         "file {} is neither a private nor public OpenSSH key",
         path.display(),
     )))
 }
 
-fn load_and_decrypt(path: &Path, old_pp: Option<&str>) -> Result<PrivateKey, GitwayError> {
+fn load_and_decrypt(path: &Path, old_pp: Option<&str>) -> Result<PrivateKey, AnvilError> {
     let pem = fs::read_to_string(path)?;
     let key = PrivateKey::from_openssh(&pem)
-        .map_err(|e| GitwayError::invalid_config(format!("cannot parse key: {e}")))?;
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse key: {e}")))?;
     if !key.is_encrypted() {
         return Ok(key);
     }
@@ -719,7 +717,7 @@ fn load_and_decrypt(path: &Path, old_pp: Option<&str>) -> Result<PrivateKey, Git
         }
     };
     key.decrypt(pp.as_bytes())
-        .map_err(|e| GitwayError::signing(format!("decrypt failed: {e}")))
+        .map_err(|e| AnvilError::signing(format!("decrypt failed: {e}")))
 }
 
 /// Builds a user-facing error for the common case where the passphrase
@@ -730,9 +728,9 @@ fn load_and_decrypt(path: &Path, old_pp: Option<&str>) -> Result<PrivateKey, Git
 ///
 /// Replaces the raw `"I/O error: No such device or address (os error 6)"`
 /// surface with a crisp one-line message plus an actionable hint
-/// attached via [`GitwayError::with_hint`] so the main error handler
+/// attached via [`AnvilError::with_hint`] so the main error handler
 /// renders it directly under the error on stderr.
-fn passphrase_prompt_failed(key_path: &Path, io_err: &io::Error) -> GitwayError {
+fn passphrase_prompt_failed(key_path: &Path, io_err: &io::Error) -> AnvilError {
     // ENXIO (errno 6 on Linux and macOS) is the specific signal that
     // there's no controlling terminal to prompt on.  Other I/O errors
     // (permission denied on /dev/tty, etc.) get the same guidance —
@@ -742,7 +740,7 @@ fn passphrase_prompt_failed(key_path: &Path, io_err: &io::Error) -> GitwayError 
     } else {
         "cannot read from the terminal"
     };
-    GitwayError::invalid_config(format!(
+    AnvilError::invalid_config(format!(
         "cannot prompt for the passphrase to decrypt {key}: {root} ({io_err})",
         key = key_path.display(),
     ))

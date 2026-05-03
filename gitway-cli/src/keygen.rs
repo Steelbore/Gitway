@@ -17,7 +17,7 @@ use zeroize::Zeroizing;
 use anvil_ssh::allowed_signers::AllowedSigners;
 use anvil_ssh::keygen::{self, KeyType};
 use anvil_ssh::sshsig;
-use anvil_ssh::GitwayError;
+use anvil_ssh::AnvilError;
 
 use crate::cli::{
     ChangePassphraseArgs, ExtractPublicArgs, FingerprintArgs, GenerateArgs, HashKind, KeyAlg,
@@ -28,7 +28,7 @@ use crate::{emit_json, emit_json_line, now_iso8601, prompt_passphrase, OutputMod
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 /// Dispatches one `gitway keygen <sub>` invocation.
-pub fn run(sub: KeygenSubcommand, mode: OutputMode) -> Result<u32, GitwayError> {
+pub fn run(sub: KeygenSubcommand, mode: OutputMode) -> Result<u32, AnvilError> {
     match sub {
         KeygenSubcommand::Generate(args) => run_generate(args, mode),
         KeygenSubcommand::Fingerprint(args) => run_fingerprint(&args, mode),
@@ -41,7 +41,7 @@ pub fn run(sub: KeygenSubcommand, mode: OutputMode) -> Result<u32, GitwayError> 
 
 // ── generate ──────────────────────────────────────────────────────────────────
 
-fn run_generate(args: GenerateArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_generate(args: GenerateArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let (kind, bits) = resolve_kind(args.kind, args.bits)?;
     let comment = args.comment.unwrap_or_else(default_comment);
 
@@ -84,7 +84,7 @@ fn run_generate(args: GenerateArgs, mode: OutputMode) -> Result<u32, GitwayError
     Ok(0)
 }
 
-fn resolve_kind(alg: KeyAlg, bits: Option<u32>) -> Result<(KeyType, Option<u32>), GitwayError> {
+fn resolve_kind(alg: KeyAlg, bits: Option<u32>) -> Result<(KeyType, Option<u32>), AnvilError> {
     match alg {
         KeyAlg::Ed25519 => Ok((KeyType::Ed25519, None)),
         KeyAlg::Rsa => Ok((KeyType::Rsa, bits)),
@@ -94,7 +94,7 @@ fn resolve_kind(alg: KeyAlg, bits: Option<u32>) -> Result<(KeyType, Option<u32>)
                 256 => Ok((KeyType::EcdsaP256, None)),
                 384 => Ok((KeyType::EcdsaP384, None)),
                 521 => Ok((KeyType::EcdsaP521, None)),
-                other => Err(GitwayError::invalid_config(format!(
+                other => Err(AnvilError::invalid_config(format!(
                     "ECDSA curve size must be 256, 384, or 521 — got {other}"
                 ))),
             }
@@ -107,7 +107,7 @@ const DEFAULT_ECDSA_CURVE_BITS: u32 = 256;
 
 // ── fingerprint ───────────────────────────────────────────────────────────────
 
-fn run_fingerprint(args: &FingerprintArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_fingerprint(args: &FingerprintArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let public = load_public_key(&args.file)?;
     let hash = hashkind_to_sshkey(args.hash);
     let fp = keygen::fingerprint(&public, hash);
@@ -137,7 +137,7 @@ fn run_fingerprint(args: &FingerprintArgs, mode: OutputMode) -> Result<u32, Gitw
 
 // ── extract-public ────────────────────────────────────────────────────────────
 
-fn run_extract_public(args: &ExtractPublicArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_extract_public(args: &ExtractPublicArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     keygen::extract_public(&args.file, args.output.as_deref())?;
     let out = args
         .output
@@ -167,10 +167,10 @@ fn run_extract_public(args: &ExtractPublicArgs, mode: OutputMode) -> Result<u32,
 
 // ── change-passphrase ─────────────────────────────────────────────────────────
 
-fn run_change_passphrase(args: ChangePassphraseArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_change_passphrase(args: ChangePassphraseArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let pem = fs::read_to_string(&args.file)?;
     let loaded = PrivateKey::from_openssh(&pem)
-        .map_err(|e| GitwayError::invalid_config(format!("cannot parse private key: {e}")))?;
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse private key: {e}")))?;
 
     let old = if loaded.is_encrypted() {
         Some(match args.old_passphrase {
@@ -216,7 +216,7 @@ fn run_change_passphrase(args: ChangePassphraseArgs, mode: OutputMode) -> Result
 
 // ── verify ────────────────────────────────────────────────────────────────────
 
-fn run_verify(args: &VerifyArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_verify(args: &VerifyArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let armored = fs::read_to_string(&args.signature)?;
     let allowed = AllowedSigners::load(&args.allowed_signers)?;
 
@@ -262,7 +262,7 @@ fn run_verify(args: &VerifyArgs, mode: OutputMode) -> Result<u32, GitwayError> {
 
 /// Loads a public key from `path`, accepting either a `.pub` file or a
 /// private key (from which the public key is derived).
-fn load_public_key(path: &Path) -> Result<PublicKey, GitwayError> {
+fn load_public_key(path: &Path) -> Result<PublicKey, AnvilError> {
     let raw = fs::read_to_string(path)?;
     // Try public first (fastest path), then fall back to private.
     if let Ok(pk) = PublicKey::from_openssh(raw.trim()) {
@@ -270,7 +270,7 @@ fn load_public_key(path: &Path) -> Result<PublicKey, GitwayError> {
     }
     match PrivateKey::from_openssh(&raw) {
         Ok(sk) => Ok(sk.public_key().clone()),
-        Err(e) => Err(GitwayError::invalid_config(format!(
+        Err(e) => Err(AnvilError::invalid_config(format!(
             "cannot parse key at {}: {e}",
             path.display()
         ))),
@@ -305,7 +305,7 @@ fn resolve_new_passphrase(
     file: &Path,
     explicit: Option<String>,
     no_passphrase: bool,
-) -> Result<Option<Zeroizing<String>>, GitwayError> {
+) -> Result<Option<Zeroizing<String>>, AnvilError> {
     if no_passphrase {
         return Ok(None);
     }
@@ -326,7 +326,7 @@ fn resolve_new_passphrase(
 /// Prompts for a new passphrase with confirmation. Reusing
 /// [`prompt_passphrase`] twice would accept an unconfirmed single entry; this
 /// helper matches `ssh-keygen`'s UX.
-fn prompt_new_passphrase(path: &Path) -> Result<Zeroizing<String>, GitwayError> {
+fn prompt_new_passphrase(path: &Path) -> Result<Zeroizing<String>, AnvilError> {
     use std::io::IsTerminal as _;
     // Non-interactive context: fall back to single-shot prompt via
     // SSH_ASKPASS. `prompt_passphrase` already handles that.
@@ -338,15 +338,15 @@ fn prompt_new_passphrase(path: &Path) -> Result<Zeroizing<String>, GitwayError> 
         path.display()
     ))
     .map(Zeroizing::new)
-    .map_err(GitwayError::from)?;
+    .map_err(AnvilError::from)?;
     if first.is_empty() {
         return Ok(Zeroizing::new(String::new()));
     }
     let confirm = rpassword::prompt_password("Enter same passphrase again: ")
         .map(Zeroizing::new)
-        .map_err(GitwayError::from)?;
+        .map_err(AnvilError::from)?;
     if *first != *confirm {
-        return Err(GitwayError::invalid_config(
+        return Err(AnvilError::invalid_config(
             "passphrases did not match — aborting",
         ));
     }
@@ -354,7 +354,7 @@ fn prompt_new_passphrase(path: &Path) -> Result<Zeroizing<String>, GitwayError> 
 }
 
 /// Opens either the named file or stdin for signing/verifying.
-pub(crate) fn open_input(path: Option<&Path>) -> Result<Box<dyn io::Read>, GitwayError> {
+pub(crate) fn open_input(path: Option<&Path>) -> Result<Box<dyn io::Read>, AnvilError> {
     match path {
         Some(p) if p.as_os_str() == "-" => Ok(Box::new(io::stdin())),
         Some(p) => Ok(Box::new(fs::File::open(p)?)),
@@ -363,7 +363,7 @@ pub(crate) fn open_input(path: Option<&Path>) -> Result<Box<dyn io::Read>, Gitwa
 }
 
 /// Writes signature bytes to either the named file or stdout.
-pub(crate) fn write_output(path: Option<&Path>, bytes: &[u8]) -> Result<(), GitwayError> {
+pub(crate) fn write_output(path: Option<&Path>, bytes: &[u8]) -> Result<(), AnvilError> {
     match path {
         Some(p) if p.as_os_str() == "-" => {
             let mut out = io::stdout().lock();

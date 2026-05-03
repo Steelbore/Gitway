@@ -27,7 +27,7 @@ use zeroize::Zeroizing;
 
 use anvil_ssh::agent::client::Agent;
 use anvil_ssh::keygen::fingerprint;
-use anvil_ssh::GitwayError;
+use anvil_ssh::AnvilError;
 
 use crate::cli::{
     AgentAddArgs, AgentListArgs, AgentLockArgs, AgentRemoveArgs, AgentStartArgs, AgentStopArgs,
@@ -53,7 +53,7 @@ use nix::unistd::Pid;
 /// Async to let the `Start` arm drive the agent daemon's accept loop on
 /// the outer `#[tokio::main]` runtime; the other arms are sync and run
 /// to completion before returning.
-pub async fn run(sub: AgentSubcommand, mode: OutputMode) -> Result<u32, GitwayError> {
+pub async fn run(sub: AgentSubcommand, mode: OutputMode) -> Result<u32, AnvilError> {
     match sub {
         AgentSubcommand::Add(args) => run_add(&args, mode),
         AgentSubcommand::List(args) => run_list(&args, mode),
@@ -67,7 +67,7 @@ pub async fn run(sub: AgentSubcommand, mode: OutputMode) -> Result<u32, GitwayEr
 
 // ── add ───────────────────────────────────────────────────────────────────────
 
-fn run_add(args: &AgentAddArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_add(args: &AgentAddArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let paths = if args.files.is_empty() {
         default_key_paths()?
     } else {
@@ -109,9 +109,9 @@ fn run_add(args: &AgentAddArgs, mode: OutputMode) -> Result<u32, GitwayError> {
 
 /// Default private-key paths in the order `ssh-add` uses when given no
 /// arguments: ed25519, ecdsa, rsa under `~/.ssh/`.
-fn default_key_paths() -> Result<Vec<std::path::PathBuf>, GitwayError> {
+fn default_key_paths() -> Result<Vec<std::path::PathBuf>, AnvilError> {
     let home =
-        dirs::home_dir().ok_or_else(|| GitwayError::invalid_config("cannot determine $HOME"))?;
+        dirs::home_dir().ok_or_else(|| AnvilError::invalid_config("cannot determine $HOME"))?;
     let candidates = ["id_ed25519", "id_ecdsa", "id_rsa"];
     let found: Vec<_> = candidates
         .iter()
@@ -119,29 +119,28 @@ fn default_key_paths() -> Result<Vec<std::path::PathBuf>, GitwayError> {
         .filter(|p| p.exists())
         .collect();
     if found.is_empty() {
-        return Err(GitwayError::no_key_found());
+        return Err(AnvilError::no_key_found());
     }
     Ok(found)
 }
 
 /// Loads and (if necessary) decrypts a private key, prompting for the
 /// passphrase via the shared `prompt_passphrase` helper.
-fn load_private_key(path: &Path) -> Result<PrivateKey, GitwayError> {
+fn load_private_key(path: &Path) -> Result<PrivateKey, AnvilError> {
     let pem = fs::read_to_string(path)?;
-    let key = PrivateKey::from_openssh(&pem).map_err(|e| {
-        GitwayError::invalid_config(format!("cannot parse {}: {e}", path.display()))
-    })?;
+    let key = PrivateKey::from_openssh(&pem)
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse {}: {e}", path.display())))?;
     if !key.is_encrypted() {
         return Ok(key);
     }
     let pp: Zeroizing<String> = prompt_passphrase(path)?;
     key.decrypt(pp.as_bytes())
-        .map_err(|e| GitwayError::signing(format!("failed to decrypt {}: {e}", path.display())))
+        .map_err(|e| AnvilError::signing(format!("failed to decrypt {}: {e}", path.display())))
 }
 
 // ── list ──────────────────────────────────────────────────────────────────────
 
-fn run_list(args: &AgentListArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_list(args: &AgentListArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let mut agent = Agent::from_env()?;
     let ids = agent.list()?;
     let hash_alg = hashkind_to_sshkey(args.hash);
@@ -171,7 +170,7 @@ fn run_list(args: &AgentListArgs, mode: OutputMode) -> Result<u32, GitwayError> 
             } else if args.full {
                 for id in &ids {
                     let line = id.public_key.to_openssh().map_err(|e| {
-                        GitwayError::signing(format!("failed to serialize public key: {e}"))
+                        AnvilError::signing(format!("failed to serialize public key: {e}"))
                     })?;
                     emit_json_line(&line);
                 }
@@ -192,7 +191,7 @@ fn run_list(args: &AgentListArgs, mode: OutputMode) -> Result<u32, GitwayError> 
 
 // ── remove ────────────────────────────────────────────────────────────────────
 
-fn run_remove(args: &AgentRemoveArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_remove(args: &AgentRemoveArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let mut agent = Agent::from_env()?;
     let removed: Vec<String>;
     if args.all {
@@ -207,7 +206,7 @@ fn run_remove(args: &AgentRemoveArgs, mode: OutputMode) -> Result<u32, GitwayErr
         agent.remove(&pk)?;
         removed = vec![fingerprint(&pk, HashAlg::Sha256)];
     } else {
-        return Err(GitwayError::invalid_config(
+        return Err(AnvilError::invalid_config(
             "`gitway agent remove` requires a <FILE> argument or `--all`",
         ));
     }
@@ -238,14 +237,14 @@ fn run_remove(args: &AgentRemoveArgs, mode: OutputMode) -> Result<u32, GitwayErr
 
 /// Loads a public key from `path`, accepting either a `.pub` file or a
 /// private key (from which the public key is derived).
-fn load_public_or_derive(path: &Path) -> Result<PublicKey, GitwayError> {
+fn load_public_or_derive(path: &Path) -> Result<PublicKey, AnvilError> {
     let raw = fs::read_to_string(path)?;
     if let Ok(pk) = PublicKey::from_openssh(raw.trim()) {
         return Ok(pk);
     }
     match PrivateKey::from_openssh(&raw) {
         Ok(sk) => Ok(sk.public_key().clone()),
-        Err(e) => Err(GitwayError::invalid_config(format!(
+        Err(e) => Err(AnvilError::invalid_config(format!(
             "cannot parse {}: {e}",
             path.display()
         ))),
@@ -254,7 +253,7 @@ fn load_public_or_derive(path: &Path) -> Result<PublicKey, GitwayError> {
 
 // ── lock / unlock ─────────────────────────────────────────────────────────────
 
-fn run_lock(args: &AgentLockArgs, mode: OutputMode, lock: bool) -> Result<u32, GitwayError> {
+fn run_lock(args: &AgentLockArgs, mode: OutputMode, lock: bool) -> Result<u32, AnvilError> {
     let mut agent = Agent::from_env()?;
     let pp: Zeroizing<String> = match &args.passphrase {
         Some(s) => Zeroizing::new(s.clone()),
@@ -290,16 +289,16 @@ fn run_lock(args: &AgentLockArgs, mode: OutputMode, lock: bool) -> Result<u32, G
 
 /// Interactive prompt used when `--passphrase` is omitted. Lock requires
 /// confirmation; unlock is a single entry.
-fn prompt_lock_passphrase(lock: bool) -> Result<Zeroizing<String>, GitwayError> {
+fn prompt_lock_passphrase(lock: bool) -> Result<Zeroizing<String>, AnvilError> {
     if lock {
         let first = rpassword::prompt_password("Agent lock passphrase: ")
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)?;
+            .map_err(AnvilError::from)?;
         let confirm = rpassword::prompt_password("Confirm lock passphrase: ")
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)?;
+            .map_err(AnvilError::from)?;
         if *first != *confirm {
-            return Err(GitwayError::invalid_config(
+            return Err(AnvilError::invalid_config(
                 "passphrases did not match — aborting",
             ));
         }
@@ -307,7 +306,7 @@ fn prompt_lock_passphrase(lock: bool) -> Result<Zeroizing<String>, GitwayError> 
     } else {
         rpassword::prompt_password("Agent unlock passphrase: ")
             .map(Zeroizing::new)
-            .map_err(GitwayError::from)
+            .map_err(AnvilError::from)
     }
 }
 
@@ -327,7 +326,7 @@ fn hashkind_to_sshkey(k: HashKind) -> HashAlg {
 /// accept loop. Internal — not a user-facing knob.
 const DAEMONIZED_MARKER: &str = "GITWAY_AGENT_DAEMONIZED";
 
-async fn run_start(args: &AgentStartArgs, _mode: OutputMode) -> Result<u32, GitwayError> {
+async fn run_start(args: &AgentStartArgs, _mode: OutputMode) -> Result<u32, AnvilError> {
     let is_daemonized_child = std::env::var_os(DAEMONIZED_MARKER).is_some();
 
     // Two entry points meet here:
@@ -354,7 +353,7 @@ async fn run_start(args: &AgentStartArgs, _mode: OutputMode) -> Result<u32, Gitw
         // model doesn't port cleanly. Require `-D` and let the shell
         // background the process (`start /B`, PowerShell `Start-Job`,
         // or a Scheduled Task / Windows service) instead.
-        Err(GitwayError::invalid_config(
+        Err(AnvilError::invalid_config(
             "background mode is Unix-only on this build — run `gitway agent start -D` \
              and background it with `start /B`, a Scheduled Task, or a Windows service",
         ))
@@ -363,7 +362,7 @@ async fn run_start(args: &AgentStartArgs, _mode: OutputMode) -> Result<u32, Gitw
 
 /// Runs the in-process agent accept loop. Called both from `-D`
 /// foreground invocations and from the post-`setsid` child we respawned.
-async fn run_daemon_loop(args: &AgentStartArgs) -> Result<u32, GitwayError> {
+async fn run_daemon_loop(args: &AgentStartArgs) -> Result<u32, AnvilError> {
     let socket_path = args.sock.clone().unwrap_or_else(default_socket_path);
     let pid_file = args
         .pid_file
@@ -406,7 +405,7 @@ async fn run_daemon_loop(args: &AgentStartArgs) -> Result<u32, GitwayError> {
 /// proceeds into the agent loop. Avoiding `pre_exec` keeps the entire
 /// flow free of `unsafe`.
 #[cfg(unix)]
-fn run_background_start(args: &AgentStartArgs) -> Result<u32, GitwayError> {
+fn run_background_start(args: &AgentStartArgs) -> Result<u32, AnvilError> {
     let raw_socket_path = args.sock.clone().unwrap_or_else(default_socket_path);
     // The child calls `chdir("/")` after `setsid`, so any relative path
     // we hand it would resolve under `/`. Canonicalize to an absolute
@@ -423,7 +422,7 @@ fn run_background_start(args: &AgentStartArgs) -> Result<u32, GitwayError> {
     // normal user mistake ("I already sourced gitway once in this
     // shell"), and the child would otherwise clobber it.
     if socket_path.exists() {
-        return Err(GitwayError::invalid_config(format!(
+        return Err(AnvilError::invalid_config(format!(
             "socket {} already exists; another agent may be running. \
              Run `gitway agent stop` first, or pass a different `-a <PATH>`.",
             socket_path.display()
@@ -431,7 +430,7 @@ fn run_background_start(args: &AgentStartArgs) -> Result<u32, GitwayError> {
     }
 
     let exe = std::env::current_exe().map_err(|e| {
-        GitwayError::invalid_config(format!("cannot locate the gitway binary for re-exec: {e}"))
+        AnvilError::invalid_config(format!("cannot locate the gitway binary for re-exec: {e}"))
     })?;
 
     let mut cmd = std::process::Command::new(&exe);
@@ -452,7 +451,7 @@ fn run_background_start(args: &AgentStartArgs) -> Result<u32, GitwayError> {
         .stderr(std::process::Stdio::null());
 
     let child = cmd.spawn().map_err(|e| {
-        GitwayError::invalid_config(format!("failed to spawn background agent: {e}"))
+        AnvilError::invalid_config(format!("failed to spawn background agent: {e}"))
     })?;
     let pid = child.id();
     // Let the handle drop; Unix drop does not reap, the daemon keeps
@@ -473,7 +472,7 @@ fn run_background_start(args: &AgentStartArgs) -> Result<u32, GitwayError> {
         std::thread::sleep(Duration::from_millis(50));
     }
     if !socket_path.exists() {
-        return Err(GitwayError::invalid_config(format!(
+        return Err(AnvilError::invalid_config(format!(
             "background agent did not bind {} within 5s — try \
              `gitway agent start -D` to see the underlying error",
             socket_path.display()
@@ -489,12 +488,12 @@ fn run_background_start(args: &AgentStartArgs) -> Result<u32, GitwayError> {
 /// relative path passed from the parent's shell cwd would otherwise
 /// resolve under `/` in the child.
 #[cfg(unix)]
-fn absolute_path(path: &Path) -> Result<std::path::PathBuf, GitwayError> {
+fn absolute_path(path: &Path) -> Result<std::path::PathBuf, AnvilError> {
     if path.is_absolute() {
         return Ok(path.to_owned());
     }
     let cwd = std::env::current_dir().map_err(|e| {
-        GitwayError::invalid_config(format!(
+        AnvilError::invalid_config(format!(
             "cannot resolve {} to an absolute path: {e}",
             path.display()
         ))
@@ -524,12 +523,12 @@ fn finalize_detach() {
 }
 
 #[cfg(unix)]
-fn run_stop(args: &AgentStopArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_stop(args: &AgentStopArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let pid = resolve_daemon_pid(args.pid_file.as_deref())?;
     // SIGTERM for graceful shutdown; the daemon unlinks the socket and
     // pid file in its drop path.
     kill(Pid::from_raw(pid), Signal::SIGTERM)
-        .map_err(|e| GitwayError::invalid_config(format!("failed to signal pid {pid}: {e}")))?;
+        .map_err(|e| AnvilError::invalid_config(format!("failed to signal pid {pid}: {e}")))?;
 
     match mode {
         OutputMode::Json => {
@@ -551,7 +550,7 @@ fn run_stop(args: &AgentStopArgs, mode: OutputMode) -> Result<u32, GitwayError> 
 }
 
 #[cfg(not(unix))]
-fn run_stop(_args: &AgentStopArgs, _mode: OutputMode) -> Result<u32, GitwayError> {
+fn run_stop(_args: &AgentStopArgs, _mode: OutputMode) -> Result<u32, AnvilError> {
     // Windows has no `SIGTERM` — console apps receive `CTRL_C_EVENT`
     // only from their own console, and service control is out of scope
     // for v0.6.x. Users running `gitway agent start -D` in a foreground
@@ -559,24 +558,24 @@ fn run_stop(_args: &AgentStopArgs, _mode: OutputMode) -> Result<u32, GitwayError
     // process in a launcher that knows how to terminate it (Task
     // Manager, `Stop-Process` in PowerShell, or a Windows service
     // harness).
-    Err(GitwayError::invalid_config(
+    Err(AnvilError::invalid_config(
         "`gitway agent stop` is Unix-only — on Windows stop the agent via Ctrl+C, \
          `Stop-Process -Id <pid>` in PowerShell, or your service harness",
     ))
 }
 
 #[cfg(unix)]
-fn resolve_daemon_pid(cli_pid_file: Option<&Path>) -> Result<i32, GitwayError> {
+fn resolve_daemon_pid(cli_pid_file: Option<&Path>) -> Result<i32, AnvilError> {
     if let Ok(s) = std::env::var("SSH_AGENT_PID") {
         return s.trim().parse().map_err(|_e: std::num::ParseIntError| {
-            GitwayError::invalid_config(format!("SSH_AGENT_PID is not an integer: {s:?}"))
+            AnvilError::invalid_config(format!("SSH_AGENT_PID is not an integer: {s:?}"))
         });
     }
     let path = cli_pid_file
         .map(Path::to_owned)
         .or_else(|| default_pid_path(&default_socket_path()))
         .ok_or_else(|| {
-            GitwayError::invalid_config(
+            AnvilError::invalid_config(
                 "no running agent to stop: neither SSH_AGENT_PID nor a \
                  pid file are available",
             )
@@ -586,7 +585,7 @@ fn resolve_daemon_pid(cli_pid_file: Option<&Path>) -> Result<i32, GitwayError> {
         .trim()
         .parse::<i32>()
         .map_err(|_e: std::num::ParseIntError| {
-            GitwayError::invalid_config(format!(
+            AnvilError::invalid_config(format!(
                 "pid file {} does not contain a valid integer",
                 path.display()
             ))

@@ -15,14 +15,14 @@ use zeroize::Zeroizing;
 use anvil_ssh::auth::{find_identity, IdentityResolution};
 use anvil_ssh::keygen;
 use anvil_ssh::sshsig;
-use anvil_ssh::GitwayError;
+use anvil_ssh::AnvilError;
 
 use crate::cli::{HashKind, SignArgs};
 use crate::keygen::{hashkind_to_sshkey, open_input, write_output};
 use crate::{now_iso8601, prompt_passphrase, OutputMode};
 
 /// Runs `gitway sign` / `gitway keygen sign`.
-pub fn run(args: &SignArgs, mode: OutputMode) -> Result<u32, GitwayError> {
+pub fn run(args: &SignArgs, mode: OutputMode) -> Result<u32, AnvilError> {
     let key_path = resolve_key_path(args.key.as_deref())?;
     let key = load_and_decrypt(&key_path)?;
 
@@ -70,30 +70,29 @@ pub fn run(args: &SignArgs, mode: OutputMode) -> Result<u32, GitwayError> {
     Ok(0)
 }
 
-fn resolve_key_path(explicit: Option<&Path>) -> Result<std::path::PathBuf, GitwayError> {
+fn resolve_key_path(explicit: Option<&Path>) -> Result<std::path::PathBuf, AnvilError> {
     if let Some(p) = explicit {
         return Ok(p.to_owned());
     }
     // Auto-discovery: use the same search order as the transport path so
     // users who already have ~/.ssh/id_ed25519 picked up for fetch/push get
     // the same key for signing.
-    let config = anvil_ssh::GitwayConfig::github();
+    let config = anvil_ssh::AnvilConfig::github();
     match find_identity(&config)? {
         IdentityResolution::Found { path, .. } | IdentityResolution::Encrypted { path } => Ok(path),
-        IdentityResolution::NotFound => Err(GitwayError::no_key_found()),
+        IdentityResolution::NotFound => Err(AnvilError::no_key_found()),
     }
 }
 
-fn load_and_decrypt(path: &Path) -> Result<PrivateKey, GitwayError> {
+fn load_and_decrypt(path: &Path) -> Result<PrivateKey, AnvilError> {
     let pem = fs::read_to_string(path)?;
-    let key = PrivateKey::from_openssh(&pem).map_err(|e| {
-        GitwayError::invalid_config(format!("cannot parse {}: {e}", path.display()))
-    })?;
+    let key = PrivateKey::from_openssh(&pem)
+        .map_err(|e| AnvilError::invalid_config(format!("cannot parse {}: {e}", path.display())))?;
     if !key.is_encrypted() {
         return Ok(key);
     }
     // Encrypted: collect passphrase and decrypt.
     let pp: Zeroizing<String> = prompt_passphrase(path)?;
     key.decrypt(pp.as_bytes())
-        .map_err(|e| GitwayError::signing(format!("failed to decrypt private key: {e}")))
+        .map_err(|e| AnvilError::signing(format!("failed to decrypt private key: {e}")))
 }
