@@ -67,7 +67,11 @@ assets = [
 workspace = true
 
 [dependencies]
-gitway-lib = { version = "0.9.0", path = "../gitway-lib" }
+# Foundation library — extracted to Steelbore/Anvil and published as
+# `anvil-ssh` on crates.io.  See PRD §7.4 / §13.5.  The in-tree
+# `gitway-lib/` workspace member is a deprecated compat shim that
+# re-exports `anvil_ssh::*`; new code uses `anvil-ssh` directly.
+anvil-ssh = { workspace = true }
 
 russh.workspace      = true
 tokio.workspace      = true

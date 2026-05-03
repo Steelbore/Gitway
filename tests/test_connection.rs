@@ -12,7 +12,7 @@
 //! The tests are intentionally excluded from the default `cargo test` run to
 //! avoid flaky failures in CI environments that lack network access or keys.
 
-use gitway_lib::{GitwayConfig, GitwaySession};
+use anvil_ssh::{GitwayConfig, GitwaySession};
 
 /// Returns `true` when integration tests are enabled.
 fn integration_enabled() -> bool {
@@ -55,7 +55,7 @@ async fn host_key_mismatch_is_rejected() {
         return;
     }
 
-    use gitway_lib::hostkey;
+    use anvil_ssh::hostkey;
 
     // A fingerprint that will never match any real GitHub key.
     let fake_fp = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";

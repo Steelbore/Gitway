@@ -9,14 +9,22 @@ and self-hosted Git instances.
 ## Workspace layout
 
 ```
-gitway-lib/   Core SSH transport library (pub API, no CLI concerns)
 gitway-cli/   Binary crate — argument parsing, passphrase prompting, output formatting
+gitway-lib/   DEPRECATED compat shim — re-exports anvil_ssh::* under the legacy gitway_lib::* path
 packaging/    AUR PKGBUILDs, packaging notes
 docs/         PRD, Plan, PDF collateral
 .github/      CI and release workflows
 flake.nix     Nix flake (build + devShell)
 shell.nix     Standalone Nix dev shell (no flake lock needed)
 ```
+
+The pure-Rust SSH stack (transport, keys, signing, agent) lives in the
+[Steelbore/Anvil](https://github.com/Steelbore/Anvil) repo, published as
+[`anvil-ssh`](https://crates.io/crates/anvil-ssh).  Gitway depends on it
+via `[workspace.dependencies] anvil-ssh = "0.1.0"`.  Library work
+(host-key fingerprints, transport, keygen, sshsig, agent client/daemon)
+happens in Anvil; Gitway-side work is confined to the CLI binaries
+(`gitway`, `gitway-keygen`, `gitway-add`) and the SFRS surfaces.
 
 ## Build and test
 
@@ -44,8 +52,11 @@ cargo build --release --target x86_64-unknown-linux-musl -p gitway
 
 - **`#![forbid(unsafe_code)]`** — no unsafe in any project-owned crate.
 - **Pinned host keys** — SHA-256 fingerprints for GitHub, GitLab, and Codeberg
-  are embedded in `gitway-lib/src/hostkey.rs`.  Update them by fetching the
-  official fingerprint pages and running `cargo test` to verify.
+  live in Anvil at `src/hostkey.rs`
+  ([github.com/Steelbore/Anvil](https://github.com/Steelbore/Anvil)).
+  Update them by fetching the official fingerprint pages, opening a PR
+  against Anvil, cutting a new `anvil-ssh` release, then bumping the
+  pin in Gitway's root `Cargo.toml`.
 - **stdout stays clean** — all diagnostic output goes to stderr.  stdout is
   reserved for either binary git-pack data (exec path) or machine-readable JSON
   (`--json` / `--format json`).
@@ -61,11 +72,15 @@ cargo build --release --target x86_64-unknown-linux-musl -p gitway
 
 ## SSH fingerprint rotation procedure
 
-When a hosting provider rotates its host key:
+When a hosting provider rotates its host key (the actual edit happens in
+[Steelbore/Anvil](https://github.com/Steelbore/Anvil), not this repo):
+
 1. Fetch the new fingerprint from the provider's official documentation page.
-2. Update the constant in `gitway-lib/src/hostkey.rs`.
-3. Run `cargo test --workspace` to ensure the embedded tests still pass.
-4. Open a PR; the CI pipeline will validate all targets.
+2. In Anvil: update the constant in `src/hostkey.rs`.
+3. Run `cargo test` in Anvil to ensure the embedded tests still pass.
+4. Open a PR against Anvil; cut a new `anvil-ssh` patch release.
+5. In Gitway: bump the `anvil-ssh` version in the workspace root `Cargo.toml`.
+6. Open a Gitway PR; CI re-runs the full transport test matrix.
 
 Provider fingerprint pages:
 - GitHub: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints

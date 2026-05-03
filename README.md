@@ -4,9 +4,9 @@ Pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
 
 [![CI](https://github.com/steelbore/gitway/actions/workflows/ci.yml/badge.svg)](https://github.com/steelbore/gitway/actions/workflows/ci.yml)
 [![Crates.io: gitway](https://img.shields.io/crates/v/gitway.svg)](https://crates.io/crates/gitway)
-[![Crates.io: gitway-lib](https://img.shields.io/crates/v/gitway-lib.svg)](https://crates.io/crates/gitway-lib)
+[![Crates.io: anvil-ssh](https://img.shields.io/crates/v/anvil-ssh.svg)](https://crates.io/crates/anvil-ssh)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![MSRV: 1.85](https://img.shields.io/badge/rustc-1.85%2B-orange.svg)](rust-toolchain.toml)
+[![MSRV: 1.88](https://img.shields.io/badge/rustc-1.88%2B-orange.svg)](rust-toolchain.toml)
 
 - **Project page:** [gitway.steelbore.com](https://gitway.steelbore.com/)
 - **Maintainer:** Mohamed Hammad &lt;`Mohamed.Hammad@Steelbore.com`&gt;
@@ -46,8 +46,9 @@ order, and behaves identically on Linux, macOS, and Windows.
   `~/.config/gitway/known_hosts`.
 - **Drop-in replacement** — works with `GIT_SSH_COMMAND` and `core.sshCommand`
   exactly as `ssh` does.
-- **Library crate** — embed `gitway-lib` directly in Rust projects for
-  programmatic Git transport.
+- **Library crate** — embed [`anvil-ssh`](https://crates.io/crates/anvil-ssh)
+  (the extracted SSH stack at [github.com/Steelbore/Anvil](https://github.com/Steelbore/Anvil))
+  directly in Rust projects for programmatic Git transport.
 - **Single static binary** — no C runtime, no OpenSSL, no system SSH required.
 
 ---
@@ -952,20 +953,30 @@ thing for GUI askpass binaries.
 
 ## Library usage
 
+Gitway's SSH stack (transport, keys, signing, agent) lives in the
+[Anvil](https://github.com/Steelbore/Anvil) crate, published as
+[`anvil-ssh`](https://crates.io/crates/anvil-ssh).
+
 Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-gitway-lib = "0.8.0"
+anvil-ssh = "0.1"
 ```
+
+The legacy `gitway-lib` 0.9.x release on crates.io is deprecated; migrate by
+swapping the dep and replacing `use gitway_lib::*;` with `use anvil_ssh::*;`.
+The type names (`GitwaySession`, `GitwayConfig`, `GitwayError`) carry forward
+unchanged through Anvil 0.1.x; they will rename to `Anvil*` with
+`#[deprecated]` aliases in Anvil 0.2.0.
 
 ### Connect and run a Git command
 
 ```rust
-use gitway_lib::{GitwayConfig, GitwaySession};
+use anvil_ssh::{GitwayConfig, GitwaySession};
 
 #[tokio::main]
-async fn main() -> Result<(), gitway_lib::GitwayError> {
+async fn main() -> Result<(), anvil_ssh::GitwayError> {
     let config = GitwayConfig::github();
     let mut session = GitwaySession::connect(&config).await?;
     session.authenticate_best(&config).await?;
@@ -980,7 +991,7 @@ async fn main() -> Result<(), gitway_lib::GitwayError> {
 ### Target a GitHub Enterprise Server instance
 
 ```rust
-use gitway_lib::GitwayConfig;
+use anvil_ssh::GitwayConfig;
 use std::path::PathBuf;
 
 let config = GitwayConfig::builder("ghe.corp.example.com")
@@ -992,7 +1003,7 @@ let config = GitwayConfig::builder("ghe.corp.example.com")
 ### Handle errors by category
 
 ```rust
-use gitway_lib::GitwayError;
+use anvil_ssh::GitwayError;
 
 fn handle(err: &GitwayError) {
     if err.is_host_key_mismatch() {

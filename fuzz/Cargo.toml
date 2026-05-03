@@ -18,7 +18,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-gitway-lib    = { path = "../gitway-lib" }
+anvil-ssh     = "0.1.0"
 tempfile      = "3"
 
 # Fuzz target binaries.  Each maps to a file in fuzz_targets/.

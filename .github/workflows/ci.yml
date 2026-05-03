@@ -5,7 +5,7 @@
 #   check   — cargo check (fast fail on type errors), Linux only
 #   lint    — cargo clippy -D warnings on Linux + Windows; rustfmt --check on Linux
 #   test    — cargo test (unit + doc tests) on Linux, macOS, and Windows
-#   msrv    — cargo check on rust-version from Cargo.toml (currently 1.85)
+#   msrv    — cargo check on rust-version from Cargo.toml (currently 1.88)
 #
 # Integration tests (test_connection, test_clone) require GITWAY_INTEGRATION_TESTS=1
 # and a live SSH identity.  They are not run in CI to avoid flaky failures.
@@ -155,10 +155,11 @@ jobs:
 
   # ── Release binary size guard (Linux) ─────────────────────────────────────
   #
-  # S2: the stripped release binary must stay under 10 MB.
-  # Fails fast if a dependency change bloats the binary unexpectedly.
+  # S2: the stripped release binary must stay under 12 MB.  Raised from 10 MB
+  # in PRD v1.0 to absorb the v1.0 feature additions (tracing + hidapi etc.);
+  # the current v0.x line still fits comfortably under the old 10 MB.
   size-check:
-    name: binary size ≤ 10 MB (S2)
+    name: binary size ≤ 12 MB (S2)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -184,9 +185,9 @@ jobs:
         run: |
           SIZE=$(stat -c%s target/release/gitway)
           SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
-          echo "Release binary: ${SIZE_MB} MB  (S2 limit: 10 MB)"
-          if [ "$SIZE" -gt 10485760 ]; then
-            echo "Binary exceeds 10 MB limit (S2)"
+          echo "Release binary: ${SIZE_MB} MB  (S2 limit: 12 MB)"
+          if [ "$SIZE" -gt 12582912 ]; then
+            echo "Binary exceeds 12 MB limit (S2)"
             exit 1
           fi
 
@@ -226,15 +227,15 @@ jobs:
 
   # ── MSRV check (Linux) ──────────────────────────────────────────────────────
   msrv:
-    name: cargo check (MSRV 1.85)
+    name: cargo check (MSRV 1.88)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install Rust 1.85 (MSRV)
-        uses: dtolnay/rust-toolchain@1.85
+      - name: Install Rust 1.88 (MSRV)
+        uses: dtolnay/rust-toolchain@1.88
 
       - name: Cache cargo registry
         uses: actions/cache@v4

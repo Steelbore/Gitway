@@ -25,9 +25,9 @@ use clap::Parser as _;
 use zeroize::{Zeroize as _, Zeroizing};
 
 #[cfg(unix)]
-use gitway_lib::auth::connect_agent;
-use gitway_lib::auth::{find_identity, IdentityResolution};
-use gitway_lib::{GitwayConfig, GitwayError, GitwaySession};
+use anvil_ssh::auth::connect_agent;
+use anvil_ssh::auth::{find_identity, IdentityResolution};
+use anvil_ssh::{GitwayConfig, GitwayError, GitwaySession};
 
 use cli::{Cli, GitwaySubcommand, OutputFormat};
 
@@ -82,16 +82,16 @@ fn is_agent_or_ci_env() -> bool {
         || std::env::var("CI").is_ok_and(|v| v.eq_ignore_ascii_case("true"))
 }
 
-// ── ISO 8601 timestamp (thin wrapper over gitway_lib::time) ──────────────────
+// ── ISO 8601 timestamp (thin wrapper over anvil_ssh::time) ──────────────────
 
 /// Returns the current UTC time as an ISO 8601 string.
 ///
 /// Re-exported here as `pub(crate)` so the existing intra-crate callers
 /// (`keygen.rs`, `sign.rs`, `agent.rs`) keep compiling unchanged.  The
-/// implementation lives in [`gitway_lib::time`] so shim binaries can
+/// implementation lives in [`anvil_ssh::time`] so shim binaries can
 /// share it without pulling in the CLI crate.
 pub(crate) fn now_iso8601() -> String {
-    gitway_lib::time::now_iso8601()
+    anvil_ssh::time::now_iso8601()
 }
 
 // ── JSON emission helpers ─────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ async fn main() {
                     // grep-able record with PID + argv + exit code + reason.
                     // JSON mode already carries timestamp + command in the
                     // structured blob above, so this is human-mode-only.
-                    gitway_lib::diagnostic::emit_for(e);
+                    anvil_ssh::diagnostic::emit_for(e);
                 }
             }
             e.exit_code()
@@ -213,7 +213,7 @@ async fn run(cli: Cli) -> Result<u32, GitwayError> {
     let raw_host = cli
         .host
         .clone()
-        .unwrap_or_else(|| gitway_lib::hostkey::DEFAULT_GITHUB_HOST.to_owned());
+        .unwrap_or_else(|| anvil_ssh::hostkey::DEFAULT_GITHUB_HOST.to_owned());
 
     // Split off the username if the host arg uses the `user@host` form.
     // Git invokes SSH as: ssh <user>@<host> git-upload-pack ...; for GitHub
@@ -763,7 +763,8 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     // we decide whether askpass is needed at all.
     if !std::path::Path::new(&askpass).is_absolute() {
         return Err(GitwayError::invalid_config(format!(
-            "SSH_ASKPASS {askpass:?} must be an absolute path"
+            "SSH_ASKPASS {} must be an absolute path",
+            std::path::Path::new(&askpass).display(),
         )));
     }
 
@@ -799,21 +800,26 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
             // 0o002 = write bit for "other"
             if meta.permissions().mode() & 0o002 != 0 {
                 return Err(GitwayError::invalid_config(format!(
-                    "SSH_ASKPASS {askpass:?} is world-writable and \
-                     cannot be trusted"
+                    "SSH_ASKPASS {} is world-writable and \
+                     cannot be trusted",
+                    std::path::Path::new(&askpass).display(),
                 )));
             }
         }
     }
 
-    log::debug!("auth: using SSH_ASKPASS program {askpass:?}");
+    log::debug!(
+        "auth: using SSH_ASKPASS program {}",
+        std::path::Path::new(&askpass).display(),
+    );
 
     let output = std::process::Command::new(&askpass)
         .arg(prompt)
         .output()
         .map_err(|e| {
             GitwayError::invalid_config(format!(
-                "SSH_ASKPASS program {askpass:?} could not be launched: {e}"
+                "SSH_ASKPASS program {} could not be launched: {e}",
+                std::path::Path::new(&askpass).display(),
             ))
         })?;
 
@@ -826,7 +832,8 @@ fn try_askpass(prompt: &str) -> Result<Option<Zeroizing<String>>, GitwayError> {
     if !status.success() {
         stdout.zeroize();
         return Err(GitwayError::invalid_config(format!(
-            "SSH_ASKPASS program {askpass:?} exited with status {status}"
+            "SSH_ASKPASS program {} exited with status {status}",
+            std::path::Path::new(&askpass).display(),
         )));
     }
 

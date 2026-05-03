@@ -24,14 +24,27 @@ Guidelines for AI agents working in this codebase.
 
 ## How to add a new Git hosting provider
 
+The fingerprint table, `GitwayConfig` constructors, and `fingerprints_for_host`
+match arms all live in [Steelbore/Anvil](https://github.com/Steelbore/Anvil)
+(the extracted SSH stack, published as `anvil-ssh`).  The Gitway-side change is
+limited to the agent-facing `describe` advertisement.
+
+In Anvil:
+
 1. Find the provider's official SSH host key fingerprint documentation page.
 2. Add `const DEFAULT_<PROVIDER>_HOST: &str` and `const <PROVIDER>_FINGERPRINTS`
-   to `gitway-lib/src/hostkey.rs`.
+   to `src/hostkey.rs`.
 3. Add a `fingerprints_for_host` match arm covering the new host constant.
-4. Add a `GitwayConfig::<provider>()` convenience constructor in `gitway-lib/src/config.rs`.
-5. Add tests for the new provider in `hostkey.rs` (see existing GitHub/GitLab/Codeberg tests).
-6. Update `CLAUDE.md` with the new fingerprint rotation URL.
-7. Update the `providers` list in `run_describe()` in `gitway-cli/src/main.rs`.
+4. Add a `GitwayConfig::<provider>()` convenience constructor in `src/config.rs`.
+5. Add tests for the new provider in `hostkey.rs`.
+6. Update Anvil's `CLAUDE.md` with the new fingerprint rotation URL.
+7. Cut a new `anvil-ssh` minor release.
+
+Then in Gitway:
+
+8. Bump the `anvil-ssh` pin in this workspace's root `Cargo.toml`.
+9. Update the `providers` list in `run_describe()` in `gitway-cli/src/main.rs`
+   so the new provider appears in `gitway describe --json`.
 
 ## How to run integration tests
 

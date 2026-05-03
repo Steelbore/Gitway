@@ -3,7 +3,7 @@
 //! Dispatcher for the `gitway keygen` subcommand tree.
 //!
 //! Maps parsed [`cli::KeygenSubcommand`] variants onto functions in
-//! `gitway_lib::keygen`, `gitway_lib::sshsig`, and `gitway_lib::allowed_signers`.
+//! `anvil_ssh::keygen`, `anvil_ssh::sshsig`, and `anvil_ssh::allowed_signers`.
 //! All user-facing JSON/human output decisions live here; the library layer
 //! stays output-agnostic.
 
@@ -14,10 +14,10 @@ use std::path::Path;
 use ssh_key::{HashAlg, PrivateKey, PublicKey};
 use zeroize::Zeroizing;
 
-use gitway_lib::allowed_signers::AllowedSigners;
-use gitway_lib::keygen::{self, KeyType};
-use gitway_lib::sshsig;
-use gitway_lib::GitwayError;
+use anvil_ssh::allowed_signers::AllowedSigners;
+use anvil_ssh::keygen::{self, KeyType};
+use anvil_ssh::sshsig;
+use anvil_ssh::GitwayError;
 
 use crate::cli::{
     ChangePassphraseArgs, ExtractPublicArgs, FingerprintArgs, GenerateArgs, HashKind, KeyAlg,

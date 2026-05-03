@@ -2,10 +2,11 @@
 /target/
 fuzz/target/
 
-# Cargo lock is committed for binaries, not libraries.
-# gitway-lib is a library so its lock file should not be committed if published
-# separately, but since this workspace also contains a binary (gitway-cli) we
-# keep Cargo.lock checked in.
+# Cargo.lock is committed.  gitway-cli is a binary (committing the lockfile
+# is the convention) and the workspace pins `anvil-ssh` and a long
+# transitive dep tree -- the committed lockfile is what makes builds
+# reproducible across CI runners.  The in-tree `gitway-lib/` shim is
+# `publish = false` and inherits the workspace lockfile too.
 
 # Editor and IDE artifacts
 .idea/

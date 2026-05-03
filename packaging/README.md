@@ -84,22 +84,32 @@ inputs.gitway.url = "github:steelbore/gitway";
 
 ## crates.io
 
-The library crate is published to crates.io as `gitway-lib`:
+The CLI binary is published as `gitway` from this repository:
 ```sh
-cargo add gitway-lib
+cargo install gitway
 ```
 
-Release workflow (workspace):
+The SSH library has been extracted to [Steelbore/Anvil](https://github.com/Steelbore/Anvil)
+and is published separately as [`anvil-ssh`](https://crates.io/crates/anvil-ssh).
+Library users add it directly:
 ```sh
-# 1) Dry-run the library package
-cargo publish -p gitway-lib --dry-run
-
-# 2) Publish the library first
-cargo publish -p gitway-lib
-
-# 3) Wait for crates.io index propagation (usually a few minutes)
-
-# 4) Dry-run and publish the CLI crate
-cargo publish -p gitway --dry-run
-cargo publish -p gitway
+cargo add anvil-ssh
 ```
+
+Releasing `gitway` from this workspace:
+```sh
+# 1) Dry-run the CLI package (Cargo.lock pins anvil-ssh = "0.1.x")
+cargo publish -p gitway --dry-run --locked
+
+# 2) Publish the CLI crate
+cargo publish -p gitway --locked
+```
+
+The in-tree `gitway-lib/` workspace member is `publish = false` — it is a
+deprecated compat shim that re-exports `anvil_ssh::*` and is intentionally
+not republished.  The legacy `gitway-lib 0.9.x` releases on crates.io
+remain available (not yanked) so older `Cargo.lock` files continue to
+resolve, but new code should depend on `anvil-ssh` directly.
+
+Releasing the library is a separate workflow in the
+[Steelbore/Anvil](https://github.com/Steelbore/Anvil) repo.

@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
-name          = "gitway-lib"
-description   = "Pure-Rust SSH library for Git: transport, keys, signing, agent."
-keywords      = ["ssh", "git", "gitlab", "codeberg", "transport"]
-categories    = ["network-programming", "authentication"]
-readme        = "README.md"
+name        = "gitway-lib"
+description = "DEPRECATED: superseded by `anvil-ssh` (https://crates.io/crates/anvil-ssh / https://github.com/Steelbore/Anvil).  This in-tree shim re-exports the Anvil API under the legacy `gitway_lib::*` module path."
+keywords    = ["ssh", "git", "deprecated"]
+categories  = ["network-programming", "authentication"]
+readme      = "README.md"
 documentation = "https://docs.rs/gitway-lib"
+publish     = false
 
 version.workspace      = true
 edition.workspace      = true
@@ -18,40 +19,4 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-russh.workspace    = true
-tokio.workspace    = true
-thiserror.workspace = true
-log.workspace      = true
-dirs.workspace     = true
-zeroize.workspace  = true
-
-# SSH key format + SSHSIG signing (phase 1: keygen, sign, verify).
-ssh-key.workspace   = true
-sha2.workspace      = true
-rand_core.workspace = true
-
-# SSH agent wire-protocol client + server. Cross-platform as of v0.6.1:
-# Unix uses `UnixStream`/`UnixListener`, Windows uses named pipes
-# (`\\.\pipe\openssh-ssh-agent` matches OpenSSH-for-Windows).
-ssh-agent-lib.workspace = true
-ed25519-dalek.workspace = true
-signature.workspace     = true
-rsa.workspace           = true
-async-trait             = "0.1"
-futures                 = "0.3"
-
-# Unix-only: signal + fork + setsid primitives used by the daemon's
-# shutdown path and socket permission tightening. On Windows the
-# daemon uses `tokio::signal::ctrl_c` instead and pipe ACLs give us
-# equivalent access control without chmod.
-[target.'cfg(unix)'.dependencies]
-nix.workspace           = true
-
-[dev-dependencies]
-tokio     = { workspace = true }
-tempfile  = { workspace = true }
-criterion = { version = "0.5", features = ["async_tokio"] }
-
-[[bench]]
-name    = "throughput"
-harness = false
+anvil-ssh = { workspace = true }

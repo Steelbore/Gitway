@@ -15,7 +15,7 @@
 //! wrapper) handle backgrounding.
 //!
 //! Maps parsed [`cli::AgentSubcommand`] variants onto
-//! [`gitway_lib::agent::client::Agent`] operations. All user-facing output
+//! [`anvil_ssh::agent::client::Agent`] operations. All user-facing output
 //! lives here; the library layer stays output-agnostic.
 
 use std::fs;
@@ -25,9 +25,9 @@ use std::time::Duration;
 use ssh_key::{HashAlg, PrivateKey, PublicKey};
 use zeroize::Zeroizing;
 
-use gitway_lib::agent::client::Agent;
-use gitway_lib::keygen::fingerprint;
-use gitway_lib::GitwayError;
+use anvil_ssh::agent::client::Agent;
+use anvil_ssh::keygen::fingerprint;
+use anvil_ssh::GitwayError;
 
 use crate::cli::{
     AgentAddArgs, AgentListArgs, AgentLockArgs, AgentRemoveArgs, AgentStartArgs, AgentStopArgs,
@@ -35,7 +35,7 @@ use crate::cli::{
 };
 use crate::{emit_json, emit_json_line, now_iso8601, prompt_passphrase, OutputMode};
 
-use gitway_lib::agent::daemon::{self, AgentDaemonConfig};
+use anvil_ssh::agent::daemon::{self, AgentDaemonConfig};
 
 // Imports needed by `run_stop`, declared at module scope so clippy's
 // items-after-statements lint stays happy. Unix-only — the Windows

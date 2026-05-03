@@ -45,11 +45,11 @@ use std::process::ExitCode;
 use ssh_key::{HashAlg, LineEnding, PrivateKey, PublicKey};
 use zeroize::Zeroizing;
 
-use gitway_lib::agent::client::Agent;
-use gitway_lib::allowed_signers::AllowedSigners;
-use gitway_lib::keygen::{self, KeyType};
-use gitway_lib::sshsig;
-use gitway_lib::GitwayError;
+use anvil_ssh::agent::client::Agent;
+use anvil_ssh::allowed_signers::AllowedSigners;
+use anvil_ssh::keygen::{self, KeyType};
+use anvil_ssh::sshsig;
+use anvil_ssh::GitwayError;
 
 // ── Top-level dispatch ────────────────────────────────────────────────────────
 
@@ -71,7 +71,7 @@ fn main() -> ExitCode {
             // failed" with no further context, so emit one grep-able
             // record to stderr (stdout stays byte-compatible with
             // ssh-keygen for git's parser).
-            gitway_lib::diagnostic::emit_for(&e);
+            anvil_ssh::diagnostic::emit_for(&e);
             let byte = u8::try_from(e.exit_code()).unwrap_or(1);
             ExitCode::from(byte)
         }
@@ -218,7 +218,7 @@ impl Parsed {
                     // here, matching the existing separated arm below; wiring
                     // real semantics for `verify-time` / `hashalg` is a
                     // separate feature (the allowed-signers parser in
-                    // `gitway-lib::allowed_signers` does not enforce
+                    // `anvil-ssh::allowed_signers` does not enforce
                     // `valid-after` / `valid-before` either).
                     i += 1;
                 }

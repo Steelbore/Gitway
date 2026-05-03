@@ -2,7 +2,7 @@
 // Rust guideline compliant 2026-04-05
 //! Fuzz target: custom known-hosts file parser.
 //!
-//! Exercises `gitway_lib::hostkey::fingerprints_for_host` by writing
+//! Exercises `anvil_ssh::hostkey::fingerprints_for_host` by writing
 //! arbitrary bytes to a temporary file and passing it as a custom
 //! known-hosts path.
 //!
@@ -28,7 +28,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Ask for fingerprints of a GHE hostname via the fuzzed file.
     // The result is discarded; we only require no panic.
-    let _ = gitway_lib::hostkey::fingerprints_for_host(
+    let _ = anvil_ssh::hostkey::fingerprints_for_host(
         "fuzz.example.com",
         &Some(path),
     );

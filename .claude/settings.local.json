@@ -57,7 +57,12 @@
       "WebFetch(domain:docs.codeberg.org)",
       "WebFetch(domain:codeberg.org)",
       "Bash(git mv:*)",
-      "Bash(xargs sed:*)"
+      "Bash(xargs sed:*)",
+      "Bash(cargo search *)",
+      "PowerShell(cargo search bloom --limit 5)",
+      "PowerShell($env:USERPROFILE; Test-Path \"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\"; Get-Command cargo -ErrorAction SilentlyContinue)",
+      "PowerShell(\"--- File hashes \\(worktree PRD vs repo-root PRD\\) ---\"; \\(Get-FileHash \"C:\\\\steelbore\\\\gitway\\\\.claude\\\\worktrees\\\\optimistic-mclaren-5deccd\\\\Gitway-PRD-v1.0.md\"\\).Hash; \\(Get-FileHash \"C:\\\\steelbore\\\\gitway\\\\Gitway-PRD-v1.0.md\"\\).Hash)",
+      "PowerShell(Get-ChildItem -Path C:\\\\steelbore\\\\anvil -Recurse -Force | ForEach-Object { $_.FullName })"
     ]
   }
 }

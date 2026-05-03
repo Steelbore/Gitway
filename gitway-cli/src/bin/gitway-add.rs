@@ -39,9 +39,9 @@ use std::time::Duration;
 use ssh_key::{HashAlg, PrivateKey, PublicKey};
 use zeroize::Zeroizing;
 
-use gitway_lib::agent::client::Agent;
-use gitway_lib::keygen::fingerprint;
-use gitway_lib::GitwayError;
+use anvil_ssh::agent::client::Agent;
+use anvil_ssh::keygen::fingerprint;
+use anvil_ssh::GitwayError;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ fn main() -> ExitCode {
             // routinely swallow stderr; emit one grep-able record so a
             // user chasing "agent add silently failed" in their IDE
             // log has a timestamped line to find.
-            gitway_lib::diagnostic::emit_for(&e);
+            anvil_ssh::diagnostic::emit_for(&e);
             ExitCode::from(u8::try_from(e.exit_code()).unwrap_or(1))
         }
     }

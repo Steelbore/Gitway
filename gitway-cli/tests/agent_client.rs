@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Integration tests for `gitway-add` (and transitively
-//! `gitway_lib::agent::client::Agent`).
+//! `anvil_ssh::agent::client::Agent`).
 //!
 //! Strategy: spawn OpenSSH's `ssh-agent -D -a <tmp>` as a subprocess,
 //! point `$SSH_AUTH_SOCK` at its socket, then drive the shim through the

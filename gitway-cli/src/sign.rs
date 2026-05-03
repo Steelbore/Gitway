@@ -12,10 +12,10 @@ use std::path::Path;
 use ssh_key::{HashAlg, PrivateKey};
 use zeroize::Zeroizing;
 
-use gitway_lib::auth::{find_identity, IdentityResolution};
-use gitway_lib::keygen;
-use gitway_lib::sshsig;
-use gitway_lib::GitwayError;
+use anvil_ssh::auth::{find_identity, IdentityResolution};
+use anvil_ssh::keygen;
+use anvil_ssh::sshsig;
+use anvil_ssh::GitwayError;
 
 use crate::cli::{HashKind, SignArgs};
 use crate::keygen::{hashkind_to_sshkey, open_input, write_output};
@@ -77,7 +77,7 @@ fn resolve_key_path(explicit: Option<&Path>) -> Result<std::path::PathBuf, Gitwa
     // Auto-discovery: use the same search order as the transport path so
     // users who already have ~/.ssh/id_ed25519 picked up for fetch/push get
     // the same key for signing.
-    let config = gitway_lib::GitwayConfig::github();
+    let config = anvil_ssh::GitwayConfig::github();
     match find_identity(&config)? {
         IdentityResolution::Found { path, .. } | IdentityResolution::Encrypted { path } => Ok(path),
         IdentityResolution::NotFound => Err(GitwayError::no_key_found()),

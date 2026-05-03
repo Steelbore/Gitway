@@ -64,11 +64,18 @@ acceptance of unknown keys.
 
 ## Library crate
 
-If you need embedding in Rust code, use `gitway-lib`:
+If you need to embed Gitway's SSH stack in Rust code, use the **Anvil**
+library — extracted from this repo and published as
+[`anvil-ssh`](https://crates.io/crates/anvil-ssh):
 
 ```toml
 [dependencies]
-gitway-lib = "0.6.0"
+anvil-ssh = "0.1"
 ```
 
-Repository and docs: <https://github.com/steelbore/gitway>
+Source: <https://github.com/Steelbore/Anvil>.  The legacy `gitway-lib`
+0.9.x crate on crates.io is deprecated; migrate by changing the dep to
+`anvil-ssh` and replacing `use gitway_lib::*;` with `use anvil_ssh::*;`
+(types stay the same through Anvil 0.1.x).
+
+Gitway repository and docs: <https://github.com/steelbore/gitway>
