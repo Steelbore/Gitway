@@ -435,16 +435,16 @@ No new C dependencies. Hidapi has cross-platform pure-system bindings; the CTAP 
 
 The §7.3 backwards-compat clause specifies the *result* of the extraction. This subsection specifies the *mechanics* — the steps that get `gitway-lib` from "in-tree workspace member" to "standalone Steelbore crate consumed by Gitway via `Cargo.toml` pin".
 
-**Git-history split.** Use `git subtree split -P gitway-lib -b anvil-extract` (built-in, no extra tooling, preserves authorship + commit messages + dates). The resulting branch has `gitway-lib/`'s tree at root (no path prefix). Push to the new repo as `main`. Fallback: `git filter-repo --subdirectory-filter gitway-lib` if subtree split misbehaves on the workspace history (filter-repo requires a separate install but handles edge cases more cleanly).
+**Git-history split.** ✅ Shipped as cold-start (no per-commit history preserved). The original plan called for `git subtree split -P gitway-lib -b anvil-extract`, but `git subtree` is implemented as a Bash script that forks one subprocess per commit and failed reliably on the Windows host this work was driven from (`dofork: child died unexpectedly` under Cygwin's fork emulation). The documented fallback `git filter-repo` (Python) was not available either; cold-start was chosen to ship same-day. Per-commit history of the original library remains in [Steelbore/Gitway](https://github.com/Steelbore/Gitway); Anvil's history starts at the cold-start commit, which references the source SHA (`28abee6`) in both its commit message and the 0.1.0 CHANGELOG entry. `git blame` for any pre-extraction line continues to work in the Gitway repo.
 
 **Versioning ramp.** Anvil does not ship 1.0.0 immediately — the §5.8 modules (`ssh_config/`, `proxy/`, `cert_authority`, `retry`, `debug/`, `fido/`) can only be developed *after* the extraction lands, so a fully-loaded 1.0.0 is a chicken-and-egg problem. The ramp is:
 
 | Anvil version | Scope                                                                                      |
 |---------------|--------------------------------------------------------------------------------------------|
-| 0.1.0         | Lift-and-shift extraction. No behavior change. No type renames.                            |
-| 0.2.0         | `GitwaySession`/`GitwayConfig`/`GitwayError` → `Anvil*` renames with `#[deprecated]` aliases. |
-| 0.3.0–0.9.0   | §5.8 modules added incrementally — one minor per Gitway milestone M12–M19.                  |
-| 1.0.0         | Stabilization. Cut concurrently with Gitway 1.0.0 (PRD M20).                                |
+| 0.1.0         | **✅ Shipped 2026-05-03.** Lift-and-shift extraction (cold-start). No behavior change. No type renames. |
+| 0.2.0         | **✅ Shipped 2026-05-04.** `GitwaySession`/`GitwayConfig`/`GitwayError` → `Anvil*` renames with `#[deprecated]` aliases. |
+| 0.3.0–0.9.0   | ⏳ In progress (M12+). §5.8 modules added incrementally — one minor per Gitway milestone M12–M19. |
+| 1.0.0         | ⏳ Planned. Stabilization. Cut concurrently with Gitway 1.0.0 (PRD M20).                    |
 
 **Crates.io plan.** Publish `anvil-ssh = "0.1.0"` immediately after the extracted code builds clean in isolation. Existing `gitway-lib` releases on crates.io are *not* yanked — yanking would break older `Cargo.lock` files in the wild. The final published `gitway-lib` release (0.9.x) gets a README pointing at Anvil. From v1.0 onward, only `anvil-ssh` is published; the in-tree `gitway-lib/` directory inside the Gitway workspace becomes a Gitway-internal compat shim and is not republished to crates.io.
 
@@ -473,7 +473,7 @@ The §7.3 backwards-compat clause specifies the *result* of the extraction. This
 | Milestone | Focus | Key Deliverables | Status |
 |-----------|-------|------------------|--------|
 | M1–M11 | v0.1–v0.9 (shipped) | Transport, signing, agent, NixOS, diagnostic, post-0.6 polish | ✅ Done |
-| **M11.5** | **Anvil extraction (lift-and-shift)** | New `Steelbore/Anvil` repo bootstrapped; `gitway-lib` history split via `git subtree split`; `anvil-ssh = "0.1.0"` published to crates.io; Gitway `Cargo.toml` depends on `anvil-ssh`; in-tree `gitway-lib/` becomes thin re-export shim per §7.4; CI green on all three platforms; real GitHub clone + sign + agent smoke test passes. | ⏳ Planned |
+| **M11.5** | **Anvil extraction + 0.2.0 type rename** | `Steelbore/Anvil` repo bootstrapped via cold-start (subtree split blocked by Cygwin fork issue on the Windows dev host — see §7.4); `anvil-ssh = "0.1.0"` and `anvil-ssh = "0.2.0"` published to crates.io; Gitway `Cargo.toml` depends on `anvil-ssh = "0.2.0"`; in-tree `gitway-lib/` reduced to deprecated `pub use anvil_ssh::*;` shim with `publish = false`; `gitway-cli` source migrated from `Gitway*` to `Anvil*` type names; CI green on all three platforms; `gitway --test` against `github.com` authenticated against the embedded Ed25519 fingerprint. Gitway tags: `v1.0.0-rc.1` (after Anvil 0.1.0 + PR #16), `v1.0.0-rc.2` (after Anvil 0.2.0 + PR #17). | ✅ Done 2026-05-04 |
 | **M12** | **§5.8.1 — `~/.ssh/config` parser** | Lexer, parser, matcher, resolver; `gitway config show` subcommand; CLI integration | ⏳ Planned |
 | **M13** | **§5.8.2 — `ProxyCommand` + `ProxyJump`** | Subprocess transport; chained-hop session manager; per-hop verification | ⏳ Planned |
 | **M14** | **§5.8.3 — `@cert-authority` host CA** | Parser; cert-validator; integration with `known_hosts` resolver | ⏳ Planned |
