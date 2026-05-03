@@ -8,6 +8,10 @@ Pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![MSRV: 1.85](https://img.shields.io/badge/rustc-1.85%2B-orange.svg)](rust-toolchain.toml)
 
+- **Project page:** [gitway.steelbore.com](https://gitway.steelbore.com/)
+- **Maintainer:** Mohamed Hammad &lt;`Mohamed.Hammad@Steelbore.com`&gt;
+- **Copyright:** © 2026 Mohamed Hammad — GPL-3.0-or-later (see [LICENSE](LICENSE))
+
 ---
 
 ## Why Gitway?

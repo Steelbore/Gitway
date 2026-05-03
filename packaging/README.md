@@ -2,6 +2,10 @@
 
 This directory contains packaging manifests for Gitway across Linux distributions.
 
+- **Project page:** [gitway.steelbore.com](https://gitway.steelbore.com/)
+- **Maintainer:** Mohamed Hammad &lt;`Mohamed.Hammad@Steelbore.com`&gt;
+- **Copyright:** © 2026 Mohamed Hammad — GPL-3.0-or-later
+
 ## systemd user unit
 
 `systemd/gitway-agent.service` runs the Gitway SSH agent as a user

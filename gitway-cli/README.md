@@ -2,6 +2,10 @@
 
 `gitway` is a pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
 
+- **Project page:** [gitway.steelbore.com](https://gitway.steelbore.com/)
+- **Maintainer:** Mohamed Hammad &lt;`Mohamed.Hammad@Steelbore.com`&gt;
+- **Copyright:** © 2026 Mohamed Hammad — GPL-3.0-or-later
+
 It is designed as a drop-in replacement for `ssh` in Git workflows with a
 security-first default posture:
 

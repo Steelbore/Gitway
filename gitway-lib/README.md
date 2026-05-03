@@ -5,6 +5,10 @@ Pure-Rust SSH library for Git: transport, keys, signing, agent. Built on
 
 Part of the [Gitway](https://github.com/steelbore/gitway) project.
 
+- **Project page:** [gitway.steelbore.com](https://gitway.steelbore.com/)
+- **Maintainer:** Mohamed Hammad &lt;`Mohamed.Hammad@Steelbore.com`&gt;
+- **Copyright:** © 2026 Mohamed Hammad — GPL-3.0-or-later
+
 [![Crates.io](https://img.shields.io/crates/v/gitway-lib.svg)](https://crates.io/crates/gitway-lib)
 [![docs.rs](https://docs.rs/gitway-lib/badge.svg)](https://docs.rs/gitway-lib)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](https://github.com/steelbore/gitway/blob/main/LICENSE)

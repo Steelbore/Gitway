@@ -375,6 +375,10 @@ pub struct AgentStopArgs {
     version,
     about   = "Pure-Rust SSH toolkit for Git: transport, keys, signing, agent.",
     long_about = None,
+    after_help = "\
+Project page:  https://gitway.steelbore.com/
+Maintainer:    Mohamed Hammad <Mohamed.Hammad@Steelbore.com>
+Copyright:     (C) 2026 Mohamed Hammad — GPL-3.0-or-later",
     // Allow unknown arguments beginning with `-o` for OpenSSH compatibility.
     // Any unrecognised args are collected into `extra_opts` below.
     allow_hyphen_values = true,
