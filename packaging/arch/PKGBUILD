@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Maintainer: Mohamed Hammad <MJ@S3cure.me>
+# Maintainer: Mohamed Hammad <Mohamed.Hammad@Steelbore.com>
 #
 # gitway-bin — installs the pre-built static musl binary from the GitHub
 # Release page.  This is the recommended package for most users.
 #
 # To build from source instead, use the companion PKGBUILD-git.
+#
+# Live AUR repo: https://aur.archlinux.org/packages/gitway-bin
+# Project page:  https://gitway.steelbore.com/
 
 pkgname=gitway-bin
-pkgver=0.6.0
+pkgver=0.9.0
 pkgrel=1
 pkgdesc="Pure-Rust SSH toolkit for Git: transport, keys, signing, agent"
 arch=('x86_64')
@@ -21,7 +24,7 @@ source=(
 )
 # Update sha256sums by running: updpkgsums
 # or manually:  sha256sum gitway-bin-${pkgver}.tar.gz
-sha256sums=('SKIP')
+sha256sums=('b54e51c7d686cd45ff13989f04a8036882d4ec67d08998986e7f39804a4e9f3c')
 
 package() {
   cd "${srcdir}"
