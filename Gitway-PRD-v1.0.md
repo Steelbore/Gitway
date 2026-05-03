@@ -39,7 +39,7 @@ Versions 0.1 through 0.9 established the core: pinned host keys, predictable key
 
 **Version 1.0.0 closes those gaps and is Gitway's first major release.** This document specifies the new scope (§5.8) plus all carry-forward requirements from earlier versions, kept here for traceability. The 1.0 release also formalizes the project tagline above.
 
-Gitway 1.0 is delivered as three binaries from one workspace plus the **Bloom** (`bloom`) library crate — extracted into its own Steelbore repository at [github.com/Steelbore/Bloom](https://github.com/Steelbore/Bloom). **Bloom** is the new name for what was `gitway-lib`: by v1.0, the crate covers a full pure-Rust SSH stack (transport, keys, agent, FIDO2, config parsing, proxy, CA verification, retry, and structured debug tracing) that reaches well beyond Git transport and deserves a name that reflects that scope. In Steelbore metallurgical convention, a *bloom* is the semi-finished steel intermediate that finished products are shaped from — exactly the role this library plays for Gitway, Conduit, and any future Steelbore SSH tool. The `gitway` binary gains a new `config` subcommand for `~/.ssh/config` resolution diagnostics:
+Gitway 1.0 is delivered as three binaries from one workspace plus the **Anvil** (`anvil-ssh`) library crate — extracted into its own Steelbore repository at [github.com/Steelbore/Anvil](https://github.com/Steelbore/Anvil). **Anvil** is the new name for what was `gitway-lib`: by v1.0, the crate covers a full pure-Rust SSH stack (transport, keys, agent, FIDO2, config parsing, proxy, CA verification, retry, and structured debug tracing) that reaches well beyond Git transport and deserves a name that reflects that scope. In Steelbore metallurgical convention, an *anvil* is the heavy iron block that forms the foundation of every smithy — the platform on which raw stock becomes finished work — exactly the role this library plays for Gitway, Conduit, and any future Steelbore SSH tool. The `gitway` binary gains a new `config` subcommand for `~/.ssh/config` resolution diagnostics:
 
 | Binary          | Purpose                                                                  |
 |-----------------|--------------------------------------------------------------------------|
@@ -90,7 +90,7 @@ A handful of smaller gaps (algorithm overrides, retry/backoff, host-key revocati
 | G4  | Pin GitHub's published SSH host-key fingerprints and reject mismatches                        | v0.1       |
 | G5  | Discover keys automatically from well-known filesystem paths and platform SSH agents          | v0.1       |
 | G6  | Maintain a single codebase with no C toolchain required at runtime                            | v0.1       |
-| G7  | Expose the **Bloom** library crate (`bloom`) for programmatic access (extracted to [github.com/Steelbore/Bloom](https://github.com/Steelbore/Bloom)) | v0.1 |
+| G7  | Expose the **Anvil** library crate (`anvil-ssh`) for programmatic access (extracted to [github.com/Steelbore/Anvil](https://github.com/Steelbore/Anvil)) | v0.1 |
 | G8  | Generate OpenSSH keypairs and produce SSHSIG signatures                                       | v0.4       |
 | G9  | Act as a drop-in SSH agent (client + daemon)                                                  | v0.5–0.6   |
 | **G10** | **Honor `~/.ssh/config` (subset) so multi-account workflows work without per-repo overrides** | **v1.0**   |
@@ -159,9 +159,9 @@ Sections 5.1 through 5.7 are reproduced verbatim from earlier PRDs for traceabil
 - **FR-21.** `gitway --test` verifies connectivity.
 - **FR-22.** `gitway --install` updates global Git config.
 
-### 5.6 Library API (carry-forward — now provided by Bloom)
+### 5.6 Library API (carry-forward — now provided by Anvil)
 
-- **FR-23.** The **Bloom** crate exposes `BloomSession`, `BloomConfig`, `BloomError` (renamed from `GitwaySession` / `GitwayConfig` / `GitwayError` as part of the `bloom` extraction; Gitway re-exports these under `gitway_lib::*` compatibility aliases for one major version).
+- **FR-23.** The **Anvil** crate exposes `AnvilSession`, `AnvilConfig`, `AnvilError` (renamed from `GitwaySession` / `GitwayConfig` / `GitwayError` as part of the `anvil-ssh` extraction; Gitway re-exports these under `gitway_lib::*` compatibility aliases for one major version).
 - **FR-24.** Methods for connect / exec / close.
 
 ### 5.7 Key & Agent Management (carry-forward, summarized)
@@ -209,7 +209,7 @@ This section defines the four feature areas that constitute the v1.0 scope, plus
 | `ForwardAgent`             | no  | Disallowed (NG10)                                                               |
 | `LocalForward` / `RemoteForward` / `DynamicForward` | no | Disallowed (NG3) |
 
-- **FR-47.** Parse `~/.ssh/config` (and any `Include`d files) on every `gitway` invocation that targets a remote host. The parser is part of **Bloom**'s `config` module (`bloom::config`).
+- **FR-47.** Parse `~/.ssh/config` (and any `Include`d files) on every `gitway` invocation that targets a remote host. The parser is part of **Anvil**'s `config` module (`anvil_ssh::config`).
 - **FR-48.** Resolution precedence: explicit CLI flag > `~/.ssh/config` matched block > Gitway built-in defaults. Document the precedence table in `--help`.
 - **FR-49.** Support `Include` with up to 16 nesting levels; detect cycles and abort with `USAGE_ERROR`.
 - **FR-50.** Tilde expansion for paths (`~`, `~user/`); environment-variable expansion (`${VAR}`) per `ssh_config(5)`.
@@ -340,8 +340,8 @@ Carry-forward sections kept; v1.0 additions appended.
 gitway/                              # https://github.com/Steelbore/Gitway
 ├── Cargo.toml                       # workspace root
 │                                    # [dependencies]
-│                                    # bloom = { git = "https://github.com/Steelbore/Bloom", tag = "v1.0.0" }
-│                                    # (or `path = "../bloom"` for local development)
+│                                    # anvil-ssh = { git = "https://github.com/Steelbore/Anvil", tag = "v1.0.0" }
+│                                    # (or `path = "../anvil"` for local development)
 ├── gitway-cli/
 │   ├── Cargo.toml
 │   └── src/
@@ -362,7 +362,7 @@ gitway/                              # https://github.com/Steelbore/Gitway
     ├── fido_emulated.rs             # NEW — uses a software CTAP2 stub
     └── (existing test files retained)
 
-bloom/                               # https://github.com/Steelbore/Bloom  ← extracted from gitway-lib
+anvil/                               # https://github.com/Steelbore/Anvil  ← extracted from gitway-lib (crate name on crates.io: `anvil-ssh`)
 ├── Cargo.toml
 └── src/
     ├── lib.rs
@@ -405,7 +405,7 @@ bloom/                               # https://github.com/Steelbore/Bloom  ← e
 ### 7.2 Dependency Additions
 
 ```toml
-# bloom/Cargo.toml — v1.0 additions (Bloom crate, formerly gitway-lib)
+# anvil/Cargo.toml — v1.0 additions (Anvil crate `anvil-ssh`, formerly gitway-lib)
 [dependencies]
 # Existing deps from v0.9 (russh, tokio, ssh-key, etc.) carry forward unchanged.
 
@@ -429,7 +429,42 @@ No new C dependencies. Hidapi has cross-platform pure-system bindings; the CTAP 
 - Users who do **not** have `~/.ssh/config` see zero behavioral change unless they explicitly opt in via `--config <path>`.
 - The new `gitway config show` and `gitway hosts` subcommands are additive; no existing command's output format changes.
 - The single-line stderr failure diagnostic format gains optional fields; consumers that grep for stable prefixes (`gitway diag ts=`) continue to work.
-- **Bloom extraction:** `gitway-lib` is extracted to the standalone **Bloom** crate at [github.com/Steelbore/Bloom](https://github.com/Steelbore/Bloom). Gitway's `Cargo.toml` pins the Bloom release tag. Gitway re-exports `bloom::*` under deprecated `gitway_lib::*` compatibility aliases for one major version to ease any downstream consumers that imported `gitway-lib` directly.
+- **Anvil extraction:** `gitway-lib` is extracted to the standalone **Anvil** crate at [github.com/Steelbore/Anvil](https://github.com/Steelbore/Anvil). Gitway's `Cargo.toml` pins the Anvil release tag. Gitway re-exports `anvil_ssh::*` under deprecated `gitway_lib::*` compatibility aliases for one major version to ease any downstream consumers that imported `gitway-lib` directly.
+
+### 7.4 Anvil Extraction Plan
+
+The §7.3 backwards-compat clause specifies the *result* of the extraction. This subsection specifies the *mechanics* — the steps that get `gitway-lib` from "in-tree workspace member" to "standalone Steelbore crate consumed by Gitway via `Cargo.toml` pin".
+
+**Git-history split.** Use `git subtree split -P gitway-lib -b anvil-extract` (built-in, no extra tooling, preserves authorship + commit messages + dates). The resulting branch has `gitway-lib/`'s tree at root (no path prefix). Push to the new repo as `main`. Fallback: `git filter-repo --subdirectory-filter gitway-lib` if subtree split misbehaves on the workspace history (filter-repo requires a separate install but handles edge cases more cleanly).
+
+**Versioning ramp.** Anvil does not ship 1.0.0 immediately — the §5.8 modules (`ssh_config/`, `proxy/`, `cert_authority`, `retry`, `debug/`, `fido/`) can only be developed *after* the extraction lands, so a fully-loaded 1.0.0 is a chicken-and-egg problem. The ramp is:
+
+| Anvil version | Scope                                                                                      |
+|---------------|--------------------------------------------------------------------------------------------|
+| 0.1.0         | Lift-and-shift extraction. No behavior change. No type renames.                            |
+| 0.2.0         | `GitwaySession`/`GitwayConfig`/`GitwayError` → `Anvil*` renames with `#[deprecated]` aliases. |
+| 0.3.0–0.9.0   | §5.8 modules added incrementally — one minor per Gitway milestone M12–M19.                  |
+| 1.0.0         | Stabilization. Cut concurrently with Gitway 1.0.0 (PRD M20).                                |
+
+**Crates.io plan.** Publish `anvil-ssh = "0.1.0"` immediately after the extracted code builds clean in isolation. Existing `gitway-lib` releases on crates.io are *not* yanked — yanking would break older `Cargo.lock` files in the wild. The final published `gitway-lib` release (0.9.x) gets a README pointing at Anvil. From v1.0 onward, only `anvil-ssh` is published; the in-tree `gitway-lib/` directory inside the Gitway workspace becomes a Gitway-internal compat shim and is not republished to crates.io.
+
+**Gitway-side switchover.** Replace `gitway-lib = { path = "../gitway-lib" }` in the workspace root `Cargo.toml` and `gitway-cli/Cargo.toml` with `anvil-ssh = { version = "0.1.0" }` (or `git = "https://github.com/Steelbore/Anvil", tag = "v0.1.0"` during the brief window between B5 publish and crates.io index propagation). Every `use gitway_lib::*;` in `gitway-cli/src/` becomes `use anvil_ssh::*;`. The in-tree `gitway-lib/` directory is reduced to a single `lib.rs` containing `pub use anvil_ssh::*;` plus a crate-level `#[deprecated]` attribute, satisfying the §7.3 one-major-version compat-alias commitment.
+
+**Anvil repo bootstrap inventory.** The new repo gets, on first push, the same scaffolding family Gitway uses:
+
+- `LICENSE` (GPL-3.0-or-later, identical text to Gitway).
+- `README.md` — quick-start, library API tour, link back to Gitway as primary consumer.
+- `CHANGELOG.md` — initial entry: `0.1.0 — extracted from Steelbore/Gitway gitway-lib at <Gitway commit SHA>`.
+- `AGENTS.md` and `CLAUDE.md` — mirror Gitway's structure; agent-facing project map.
+- `Cargo.toml` — `name = "anvil-ssh"`, `version = "0.1.0"`, `rust-version = "1.88"`, `repository = "https://github.com/Steelbore/Anvil"`, `documentation = "https://docs.rs/anvil-ssh"`, `description`, `categories`, `keywords`.
+- `rust-toolchain.toml` — pin matching Gitway's.
+- `.gitignore` — Rust standard.
+- `flake.nix` and `shell.nix` — mirror Gitway's so `nix-shell` works the same way.
+- `.github/workflows/ci.yml` — cargo build/test/clippy/fmt across Linux/macOS/Windows + MSRV check + `cargo geiger`.
+- `.github/workflows/release.yml` — tag-triggered crates.io publish.
+- `fuzz/` — fuzz targets that exercise the lib (move from Gitway's `fuzz/` if any target the lib API).
+
+**Test split.** `gitway-lib/tests/test_connection.rs` and `gitway-lib/tests/test_clone.rs` move with the lib (they exercise the `gitway_lib::*` API directly). The CLI-bound integration tests under `gitway-cli/tests/` (`ssh_keygen_compat.rs`, `agent_client.rs`, `agent_daemon.rs`) stay in Gitway — they invoke compiled `gitway`/`gitway-keygen`/`gitway-add` binaries and exercise the *combined* product, not the lib in isolation.
 
 ---
 
@@ -438,6 +473,7 @@ No new C dependencies. Hidapi has cross-platform pure-system bindings; the CTAP 
 | Milestone | Focus | Key Deliverables | Status |
 |-----------|-------|------------------|--------|
 | M1–M11 | v0.1–v0.9 (shipped) | Transport, signing, agent, NixOS, diagnostic, post-0.6 polish | ✅ Done |
+| **M11.5** | **Anvil extraction (lift-and-shift)** | New `Steelbore/Anvil` repo bootstrapped; `gitway-lib` history split via `git subtree split`; `anvil-ssh = "0.1.0"` published to crates.io; Gitway `Cargo.toml` depends on `anvil-ssh`; in-tree `gitway-lib/` becomes thin re-export shim per §7.4; CI green on all three platforms; real GitHub clone + sign + agent smoke test passes. | ⏳ Planned |
 | **M12** | **§5.8.1 — `~/.ssh/config` parser** | Lexer, parser, matcher, resolver; `gitway config show` subcommand; CLI integration | ⏳ Planned |
 | **M13** | **§5.8.2 — `ProxyCommand` + `ProxyJump`** | Subprocess transport; chained-hop session manager; per-hop verification | ⏳ Planned |
 | **M14** | **§5.8.3 — `@cert-authority` host CA** | Parser; cert-validator; integration with `known_hosts` resolver | ⏳ Planned |
@@ -448,7 +484,7 @@ No new C dependencies. Hidapi has cross-platform pure-system bindings; the CTAP 
 | **M19** | **§5.8.8 — `known_hosts` hygiene** | `gitway hosts` subcommand; HashKnownHosts; `@revoked` | ⏳ Planned |
 | **M20** | **v1.0.0 release** | Documentation, migration notes, blog post, tagline rollout | ⏳ Planned |
 
-**Sequencing note.** M12 is a hard prerequisite for M13 (ProxyCommand directives live in `~/.ssh/config`), M14 (`UserKnownHostsFile`), M17 (algorithm directives), and M18 (`ConnectTimeout` / `ConnectionAttempts`). M15 (debug depth) and M16 (FIDO2) can run in parallel with the others. M19 has no hard dependencies but benefits from M14 being done first.
+**Sequencing note.** M11.5 is a hard prerequisite for M12–M19: every §5.8 feature lands inside the Anvil repo (per §7.1 and §7.4), not Gitway, so the extraction must be live before any §5.8 work begins. After M11.5: M12 is a hard prerequisite for M13 (ProxyCommand directives live in `~/.ssh/config`), M14 (`UserKnownHostsFile`), M17 (algorithm directives), and M18 (`ConnectTimeout` / `ConnectionAttempts`). M15 (debug depth) and M16 (FIDO2) can run in parallel with the others. M19 has no hard dependencies but benefits from M14 being done first.
 
 ---
 
@@ -503,6 +539,9 @@ No new C dependencies. Hidapi has cross-platform pure-system bindings; the CTAP 
 3. ~~Should `gitway-config` (the `ssh -G` equivalent) be a separate binary or a `gitway config` subcommand?~~ **Resolved 2026-05-02:** Subcommand (`gitway config show <host>`); keeps the binary count at three and aligns with existing distribution packaging (Debian/RPM/AUR install three binaries today).
 4. Does the new diagnostic depth interact with the existing single-line stderr failure record? **Recommendation:** No — `--verbose --verbose --verbose` writes a stream of records; the single-line diagnostic is still emitted last on failure.
 5. Should `--no-config` be the default in CI environments (`CI=true`)? **Recommendation:** No — surprising behavior. Document the flag and let CI users opt in explicitly.
+6. Should `anvil-ssh` 0.x carry the `Gitway*` type names or rename immediately to `Anvil*`? **Recommendation:** Carry `Gitway*` through 0.1.0 (smaller diff, easier rollback). Rename in 0.2.0 with `#[deprecated]` aliases per §7.4. Gitway switches to the new names in a separate PR after 0.2.0 publishes.
+7. Should the Anvil repo include the `agent` module on Windows from day one, or wait? **Recommendation:** Include from day one — current code already supports Windows named pipes (v0.6.1, validated 2026-04-22). No reason to drop platform coverage during extraction.
+8. ~~Crates.io ownership for the `anvil-ssh` name.~~ **Resolved 2026-05-03:** `bloom` (the original first-choice name) was taken on crates.io (data-structure crate at v0.3.2). User picked `anvil-ssh` from the metallurgical alternatives; verified free on crates.io, repo `Steelbore/Anvil` verified free on GitHub. Reserved during M11.5 pre-flight.
 
 ---
 
@@ -510,7 +549,7 @@ No new C dependencies. Hidapi has cross-platform pure-system bindings; the CTAP 
 
 This PRD is itself an artifact and is checked against the Standard's §13 audit gate:
 
-- **§2 Naming:** The extracted library crate is named **Bloom** — a *bloom* is the semi-finished steel intermediate product that finished goods are shaped from, exactly the role this library plays for Gitway, Conduit, and any future Steelbore SSH tool. Steelbore GitHub repo: [github.com/Steelbore/Bloom](https://github.com/Steelbore/Bloom). The new `proxy/`, `cert_authority`, `retry`, `debug/`, `fido/`, and `ssh_config/` modules inside Bloom are functional names (not project names) and do not trigger the §2 metallurgical-naming rule; if codenames are needed later, they follow the pattern (e.g. *Pearlite* for the parser layer, *Quench* for the retry policy).
+- **§2 Naming:** The extracted library crate is named **Anvil** (published on crates.io as `anvil-ssh`, since the bare `anvil` name is taken). An *anvil* is the heavy iron block that forms the foundation of every smithy — the platform on which raw stock becomes finished work, exactly the role this library plays for Gitway, Conduit, and any future Steelbore SSH tool. Steelbore GitHub repo: [github.com/Steelbore/Anvil](https://github.com/Steelbore/Anvil). The new `proxy/`, `cert_authority`, `retry`, `debug/`, `fido/`, and `ssh_config/` modules inside Anvil are functional names (not project names) and do not trigger the §2 metallurgical-naming rule; if codenames are needed later, they follow the pattern (e.g. *Pearlite* for the parser layer, *Quench* for the retry policy).
 - **§3 Priority hierarchy:** Memory safety preserved (no new `unsafe`, all FIDO/CTAP work goes through pure-Rust crates above `hidapi`). Performance budgets explicit (NFR-15, NFR-16). PQC readiness untouched.
 - **§4 Licensing:** GPL-3.0-or-later carries forward; SPDX headers required on every new `.rs` file.
 - **§5.1 POSIX:** All new CLI surfaces (`gitway-config`, `gitway hosts`, expanded flags) follow POSIX argument conventions; Windows-only paths gated explicitly.
@@ -520,6 +559,7 @@ This PRD is itself an artifact and is checked against the Standard's §13 audit 
 - **§8 Color palette / §9 Typography:** Apply when generating any companion document or diagram for v1.0.
 - **§10 Material Design / WCAG:** Not applicable (no GUI surface).
 - **§11 Date / time / units:** All dates in this PRD are ISO 8601; UTC; metric.
+- **§13.5 Repo split:** The extraction follows Steelbore convention — primary metallurgically-named library lives in its own repo ([github.com/Steelbore/Anvil](https://github.com/Steelbore/Anvil)); consumer projects (Gitway, future Conduit, etc.) pin a tagged release. The new repo mirrors Gitway's scaffolding triad (`AGENTS.md`, `CLAUDE.md`, `shell.nix`, `flake.nix`, `justfile`) for consistency across the Steelbore ecosystem. See §7.4 for mechanics.
 
 ---
 
