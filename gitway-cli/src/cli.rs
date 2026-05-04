@@ -682,6 +682,32 @@ pub struct Cli {
     #[arg(long = "host-key-algorithms", value_name = "LIST")]
     pub host_key_algorithms: Option<String>,
 
+    // ── Retry / timeout (PRD §5.8.7, M18, FR-80, FR-81) ──────────────────────
+    /// Per-attempt TCP connect timeout, in seconds (FR-80).  When
+    /// reached, the attempt is treated as a transient `TimedOut`
+    /// error and the retry loop schedules another attempt with
+    /// jittered exponential backoff.  Defaults to no timeout
+    /// (matches OpenSSH's `ConnectTimeout` unset semantics).
+    #[arg(long = "connect-timeout", value_name = "SECONDS")]
+    pub connect_timeout: Option<u64>,
+
+    /// Total number of TCP connection attempts including the
+    /// initial one (FR-80).  Each retry sleeps with jittered
+    /// exponential backoff (250 ms base, ×2 factor, 8 s cap).
+    /// Defaults to 3 (matches Anvil's `RetryPolicy::default()`);
+    /// `1` disables retry entirely.  Maps to OpenSSH's
+    /// `ConnectionAttempts`.
+    #[arg(long = "attempts", value_name = "N")]
+    pub attempts: Option<u32>,
+
+    /// Hard ceiling on total elapsed wall-clock time across all
+    /// retry attempts, in seconds (FR-81).  When the cap is reached
+    /// the retry loop returns the most-recent error rather than
+    /// starting another attempt.  Defaults to 30 s.  Not part of
+    /// OpenSSH's `ssh_config(5)` grammar — Gitway-specific.
+    #[arg(long = "max-retry-window", value_name = "SECONDS")]
+    pub max_retry_window: Option<u64>,
+
     // ── Output format (SFRS Rule 1) ───────────────────────────────────────────
     /// Emit structured JSON output (shorthand for `--format json`).
     ///

@@ -561,6 +561,21 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
         |b, list| b.host_key_algorithms(Some(list)),
     )?;
 
+    // M18 / FR-80, FR-81: retry / timeout overrides applied AFTER
+    // apply_ssh_config so CLI flags win over `~/.ssh/config`'s
+    // ConnectTimeout / ConnectionAttempts (matches OpenSSH
+    // precedence).  --max-retry-window is CLI-only.
+    if let Some(secs) = cli.connect_timeout {
+        config_builder = config_builder.connect_timeout(Some(std::time::Duration::from_secs(secs)));
+    }
+    if let Some(n) = cli.attempts {
+        config_builder = config_builder.connection_attempts(Some(n));
+    }
+    if let Some(secs) = cli.max_retry_window {
+        config_builder =
+            config_builder.max_retry_window(Some(std::time::Duration::from_secs(secs)));
+    }
+
     let config = config_builder.build();
 
     // Decide the EFFECTIVE proxy directives (M13.6 / FR-55, FR-56, FR-59).
@@ -698,6 +713,21 @@ async fn run_test(
 
     let mut session = connect_session(config, alias, proxy_command, jump_hosts).await?;
     let fingerprint = session.verified_fingerprint();
+    // M18 / FR-83: snapshot retry history before any other session
+    // calls so the JSON envelope reflects the connect-path attempts
+    // (later session use — auth, exec — has its own error path that
+    // doesn't go through the retry loop).
+    let retry_attempts: Vec<serde_json::Value> = session
+        .retry_history()
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "attempt": a.attempt,
+                "reason": a.reason,
+                "elapsed_ms": u64::try_from(a.elapsed.as_millis()).unwrap_or(u64::MAX),
+            })
+        })
+        .collect();
 
     if mode == OutputMode::Human {
         eprintln!("gitway: host-key verified ✓");
@@ -768,6 +798,7 @@ async fn run_test(
                 "banner": banner,
                 "cert_authorities": cert_authorities_json,
                 "revoked": revoked_json,
+                "retry_attempts": retry_attempts,
             }
         });
         println!("{json}");
