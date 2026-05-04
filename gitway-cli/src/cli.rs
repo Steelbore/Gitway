@@ -510,6 +510,30 @@ pub struct Cli {
     #[arg(long = "no-config", action = ArgAction::SetTrue)]
     pub no_config: bool,
 
+    // ── Proxy / jump options (M13) ────────────────────────────────────────────
+    /// Connect via this `ProxyCommand` template instead of TCP
+    /// (FR-55).  Overrides any `ProxyCommand` from `ssh_config(5)`.
+    /// Pass `none` (case-insensitive) to disable a config-supplied
+    /// `ProxyCommand` and force a direct connection.
+    ///
+    /// `%h`, `%p`, `%r`, `%n`, and `%%` are expanded against the
+    /// resolved hostname / port / remote-user / original-alias before
+    /// the platform shell (`sh -c` / `cmd /C`) runs the command.
+    #[arg(long = "proxy-command", value_name = "COMMAND")]
+    pub proxy_command: Option<String>,
+
+    /// Connect via one or more `ProxyJump` bastions (FR-56).
+    /// Repeatable; matches OpenSSH's `-J` flag in shape.  Each value
+    /// follows the `[user@]host[:port]` form; multiple `-J` flags
+    /// build a chain of up to 8 hops in order.
+    ///
+    /// Pass `none` (case-insensitive) as the only value to disable a
+    /// config-supplied `ProxyJump`.  Per-hop host-key verification
+    /// always runs independently — mismatch at any hop aborts the
+    /// entire chain (NFR-17).
+    #[arg(short = 'J', long = "jump-host", value_name = "[USER@]HOST[:PORT]", action = ArgAction::Append)]
+    pub jump_host: Vec<String>,
+
     // ── Output format (SFRS Rule 1) ───────────────────────────────────────────
     /// Emit structured JSON output (shorthand for `--format json`).
     ///

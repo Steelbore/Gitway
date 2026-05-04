@@ -328,9 +328,27 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
 
     let config = config_builder.build();
 
+    // Decide the EFFECTIVE proxy directives (M13.6 / FR-55, FR-56, FR-59).
+    let (effective_proxy_command, effective_jump_chain) =
+        resolve_proxy_directives(&cli, resolved.as_ref())?;
+
+    // Pre-HostName alias (`%n` in `ProxyCommand` token expansion).
+    // This is the user-typed argument BEFORE any `HostName` resolution
+    // by the apply_ssh_config call above — so `gitway gh foo` with
+    // `Host gh HostName github.com` produces `%n = "gh"` and
+    // `%h = "github.com"`.
+    let alias = raw_host.clone();
+
     if cli.test {
         let mode = detect_output_mode(&cli, true);
-        return run_test(&config, mode).await;
+        return run_test(
+            &config,
+            &alias,
+            effective_proxy_command.as_deref(),
+            &effective_jump_chain,
+            mode,
+        )
+        .await;
     }
 
     if cli.command.is_empty() {
@@ -339,7 +357,87 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
         ));
     }
 
-    run_exec(&config, &cli.command).await
+    run_exec(
+        &config,
+        &cli.command,
+        &alias,
+        effective_proxy_command.as_deref(),
+        &effective_jump_chain,
+    )
+    .await
+}
+
+/// Resolves the EFFECTIVE `ProxyCommand` template and `ProxyJump`
+/// chain that this invocation should honor, applying the precedence
+/// `CLI > ssh_config > none` and the FR-59 `none` disable sentinel.
+///
+/// `--jump-host` (repeatable, OpenSSH `-J`) takes precedence over the
+/// resolver-captured `proxy_jump`.  A single `--jump-host=none` (or
+/// the resolved value `none`) clears the chain.  The resolver
+/// preserves the literal `Some("none")` for `ProxyCommand` so first-
+/// occurrence-wins shields it from a later wildcard; here we pass
+/// that through unchanged — the dispatcher recognizes the literal at
+/// connect time.
+fn resolve_proxy_directives(
+    cli: &Cli,
+    resolved: Option<&anvil_ssh::ssh_config::ResolvedSshConfig>,
+) -> Result<(Option<String>, Vec<anvil_ssh::proxy::JumpHost>), AnvilError> {
+    let proxy_command = cli
+        .proxy_command
+        .clone()
+        .or_else(|| resolved.and_then(|r| r.proxy_command.clone()));
+
+    let jump_chain: Vec<anvil_ssh::proxy::JumpHost> = if !cli.jump_host.is_empty() {
+        if cli.jump_host.len() == 1 && cli.jump_host[0].eq_ignore_ascii_case("none") {
+            Vec::new()
+        } else {
+            anvil_ssh::proxy::parse_jump_chain(&cli.jump_host.join(","))?
+        }
+    } else if let Some(r) = resolved {
+        if let Some(raw) = r.proxy_jump.as_deref() {
+            if raw.eq_ignore_ascii_case("none") {
+                Vec::new()
+            } else {
+                anvil_ssh::proxy::parse_jump_chain(raw)?
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    Ok((proxy_command, jump_chain))
+}
+
+/// Establishes the SSH session, dispatching to the right
+/// [`AnvilSession`] constructor based on the effective proxy state
+/// (M13.6).
+///
+/// Precedence (matches OpenSSH):
+/// 1. `ProxyCommand` (excluding the FR-59 `none` sentinel) wins over
+///    `ProxyJump` and direct TCP.
+/// 2. Otherwise, `ProxyJump` wins over direct TCP when non-empty.
+/// 3. Otherwise, [`AnvilSession::connect`] over plain TCP.
+async fn connect_session(
+    config: &AnvilConfig,
+    alias: &str,
+    proxy_command: Option<&str>,
+    jump_hosts: &[anvil_ssh::proxy::JumpHost],
+) -> Result<AnvilSession, AnvilError> {
+    // FR-59: a literal `none` ProxyCommand means "no proxy" — fall
+    // through to the next branch.  The ssh_config resolver preserves
+    // it as `Some("none")` so first-occurrence-wins shields it from a
+    // later wildcard.
+    let effective_proxy = proxy_command.filter(|s| !s.eq_ignore_ascii_case("none"));
+
+    if let Some(template) = effective_proxy {
+        return AnvilSession::connect_via_proxy_command(config, template, alias).await;
+    }
+    if !jump_hosts.is_empty() {
+        return AnvilSession::connect_via_jump_hosts(config, jump_hosts).await;
+    }
+    AnvilSession::connect(config).await
 }
 
 // ── --test ────────────────────────────────────────────────────────────────────
@@ -348,7 +446,13 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
 ///
 /// In JSON mode emits a structured object to stdout; in human mode prints
 /// status lines to stderr (NFR-11).
-async fn run_test(config: &AnvilConfig, mode: OutputMode) -> Result<u32, AnvilError> {
+async fn run_test(
+    config: &AnvilConfig,
+    alias: &str,
+    proxy_command: Option<&str>,
+    jump_hosts: &[anvil_ssh::proxy::JumpHost],
+    mode: OutputMode,
+) -> Result<u32, AnvilError> {
     // Collect the passphrase before connecting so the session inactivity
     // timeout does not fire while the user is typing (see `maybe_collect_passphrase`).
     let pre_passphrase = maybe_collect_passphrase(config).await?;
@@ -357,7 +461,7 @@ async fn run_test(config: &AnvilConfig, mode: OutputMode) -> Result<u32, AnvilEr
         eprintln!("gitway: connecting to {}:{}…", config.host, config.port);
     }
 
-    let mut session = AnvilSession::connect(config).await?;
+    let mut session = connect_session(config, alias, proxy_command, jump_hosts).await?;
     let fingerprint = session.verified_fingerprint();
 
     if mode == OutputMode::Human {
@@ -433,7 +537,13 @@ async fn run_test(config: &AnvilConfig, mode: OutputMode) -> Result<u32, AnvilEr
 // ── Normal exec ───────────────────────────────────────────────────────────────
 
 /// Connects, authenticates, and relays a Git command over the SSH channel.
-async fn run_exec(config: &AnvilConfig, command_parts: &[String]) -> Result<u32, AnvilError> {
+async fn run_exec(
+    config: &AnvilConfig,
+    command_parts: &[String],
+    alias: &str,
+    proxy_command: Option<&str>,
+    jump_hosts: &[anvil_ssh::proxy::JumpHost],
+) -> Result<u32, AnvilError> {
     // Join all tokens the same way Git does: space-separated.
     let command = command_parts.join(" ");
 
@@ -441,7 +551,7 @@ async fn run_exec(config: &AnvilConfig, command_parts: &[String]) -> Result<u32,
     // timeout does not fire while the user is typing (see `maybe_collect_passphrase`).
     let pre_passphrase = maybe_collect_passphrase(config).await?;
 
-    let mut session = AnvilSession::connect(config).await?;
+    let mut session = connect_session(config, alias, proxy_command, jump_hosts).await?;
 
     if let Some((passphrase, path)) = pre_passphrase {
         session
@@ -609,6 +719,8 @@ fn run_schema() -> u32 {
             "--port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "SSH port (default: 22 or ssh_config Port)" },
             "--insecure-skip-host-check": { "type": "boolean", "description": "Skip host-key verification (danger)" },
             "--no-config": { "type": "boolean", "description": "Do not read any ssh_config(5) files" },
+            "--proxy-command": { "type": "string", "description": "ProxyCommand template (overrides ssh_config; pass `none` to disable)" },
+            "--jump-host": { "type": "array", "items": { "type": "string" }, "description": "ProxyJump bastion(s); repeatable; OpenSSH `-J`. Pass `none` to disable" },
         },
         "exit_codes": {
             "0": "Success",
@@ -692,7 +804,8 @@ fn run_describe() -> u32 {
         ],
         "global_flags": ["--json", "--format", "--verbose", "--no-color",
                          "--insecure-skip-host-check", "--no-config",
-                         "--identity", "--cert", "--user", "--port"],
+                         "--identity", "--cert", "--user", "--port",
+                         "--proxy-command", "--jump-host"],
         "output_formats": ["json"],
         "mcp_available": false,
         "providers": ["github.com", "gitlab.com", "codeberg.org"],

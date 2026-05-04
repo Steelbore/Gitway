@@ -92,6 +92,35 @@ fn emit_human_show(args: &ConfigShowArgs, resolved: &ResolvedSshConfig) {
     }
     if let Some(v) = &resolved.proxy_jump {
         println!("proxyjump {v}");
+        // FR-58: when a ProxyJump chain is set, parse and emit one
+        // line per hop so the user sees the resolved chain (matches
+        // the spirit of `ssh -G`'s output for chained configs).  We
+        // tolerate parse failure here — the raw `proxyjump` line
+        // above already records what was set; per-hop visualization
+        // is purely advisory.
+        if !v.eq_ignore_ascii_case("none") {
+            match anvil_ssh::proxy::parse_jump_chain(v) {
+                Ok(chain) => {
+                    for (idx, hop) in chain.iter().enumerate() {
+                        let user_prefix = hop
+                            .user
+                            .as_deref()
+                            .map(|u| format!("{u}@"))
+                            .unwrap_or_default();
+                        println!(
+                            "proxyjump_hop_{}_to {}{}:{}",
+                            idx + 1,
+                            user_prefix,
+                            hop.host,
+                            hop.port,
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("gitway config show: warning: ProxyJump unparsable: {e}");
+                }
+            }
+        }
     }
     for path in &resolved.user_known_hosts_files {
         println!(
@@ -172,6 +201,7 @@ fn emit_json_show(args: &ConfigShowArgs, resolved: &ResolvedSshConfig) {
             .collect::<Vec<_>>(),
         "proxy_command": resolved.proxy_command,
         "proxy_jump": resolved.proxy_jump,
+        "proxy_jump_chain": jump_chain_json(resolved.proxy_jump.as_deref()),
         "user_known_hosts_files": resolved
             .user_known_hosts_files
             .iter()
@@ -252,6 +282,35 @@ fn yes_no(b: bool) -> &'static str {
         "yes"
     } else {
         "no"
+    }
+}
+
+/// Parses `raw` as a `ProxyJump` chain and returns it as a JSON array
+/// of `{host, port, user}` objects (FR-58).  Returns
+/// [`serde_json::Value::Null`] when the input is `None`, the FR-59
+/// disable sentinel `"none"`, or unparsable — the raw string is still
+/// available via the sibling `proxy_jump` key.
+fn jump_chain_json(raw: Option<&str>) -> serde_json::Value {
+    let Some(raw) = raw else {
+        return serde_json::Value::Null;
+    };
+    if raw.eq_ignore_ascii_case("none") {
+        return serde_json::Value::Null;
+    }
+    match anvil_ssh::proxy::parse_jump_chain(raw) {
+        Ok(chain) => serde_json::Value::Array(
+            chain
+                .into_iter()
+                .map(|hop| {
+                    serde_json::json!({
+                        "host": hop.host,
+                        "port": hop.port,
+                        "user": hop.user,
+                    })
+                })
+                .collect(),
+        ),
+        Err(_) => serde_json::Value::Null,
     }
 }
 
