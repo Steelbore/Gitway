@@ -85,6 +85,11 @@ zeroize.workspace           = true
 serde_json.workspace        = true
 ssh-key.workspace           = true
 dirs.workspace              = true
+# M19: `gitway hosts add` uses tempfile for the FR-85 connect probe
+# so the hypothetical AcceptNew downgrade can't side-effect-write
+# into the real known_hosts file.  Promoted from dev-dep to runtime
+# dep so gitway-cli can use it from non-test code paths.
+tempfile.workspace          = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true

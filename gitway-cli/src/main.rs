@@ -17,6 +17,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 mod agent;
 mod cli;
 mod config;
+mod hosts;
 mod keygen;
 mod sign;
 
@@ -394,6 +395,7 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
             GitwaySubcommand::Sign(args) => sign::run(&args, mode),
             GitwaySubcommand::Agent(args) => agent::run(args.command, mode).await,
             GitwaySubcommand::Config(args) => config::run(args.command, mode),
+            GitwaySubcommand::Hosts(args) => hosts::run(args.command, mode),
         };
     }
 

@@ -84,6 +84,18 @@ pub enum GitwaySubcommand {
     /// pairs.  Honours the `--no-config` global flag — useful for
     /// confirming that `ssh_config` is being applied as expected.
     Config(ConfigArgs),
+    /// Manage `~/.config/gitway/known_hosts` — add, revoke, list
+    /// (M19, PRD §5.8.8 FR-84..FR-87).
+    ///
+    /// `gitway hosts add <host>` connects to `<host>`, captures the
+    /// presented SHA-256 fingerprint without authentication, prompts
+    /// for confirmation, and appends a new pin (hashed if the
+    /// existing file is hashed; plaintext otherwise).
+    /// `gitway hosts revoke <host|fingerprint>` prepends a
+    /// `@revoked` line.  `gitway hosts list` prints the resolved
+    /// trust set (built-in + user file + CA + revoked) in human or
+    /// JSON form.
+    Hosts(HostsArgs),
 }
 
 // ── Keygen arguments ──────────────────────────────────────────────────────────
@@ -425,6 +437,91 @@ pub struct ConfigShowArgs {
     /// directories are displayed as `[REDACTED]` (NFR-20).
     #[arg(long = "show-secrets", action = ArgAction::SetTrue)]
     pub show_secrets: bool,
+}
+
+// ── Hosts arguments (M19, PRD §5.8.8) ───────────────────────────────────────
+
+/// Top-level flags + nested subcommand for `gitway hosts`.
+#[derive(Debug, Args)]
+pub struct HostsArgs {
+    #[command(subcommand)]
+    pub command: HostsSubcommand,
+}
+
+/// Subcommands under `gitway hosts`.
+#[derive(Debug, Subcommand)]
+pub enum HostsSubcommand {
+    /// Connect to `<host>`, capture its SHA-256 host-key fingerprint
+    /// without authentication, and (after confirmation) append a pin
+    /// to `~/.config/gitway/known_hosts` (FR-85).
+    Add(HostsAddArgs),
+    /// Prepend a `@revoked` line for `<host_or_fingerprint>` to
+    /// `~/.config/gitway/known_hosts` (FR-86).
+    Revoke(HostsRevokeArgs),
+    /// Print the resolved trust set: embedded fingerprints + user
+    /// file pins + matching CAs + matching `@revoked` entries
+    /// (FR-87).  Supports `--format=json` for agents.
+    List(HostsListArgs),
+}
+
+/// Arguments for `gitway hosts add`.
+#[derive(Debug, Args)]
+pub struct HostsAddArgs {
+    /// Host to connect to and pin.  Example: `github.com`,
+    /// `ghe.corp.example`, `[bastion.example]:2222`.
+    #[arg(value_name = "HOST")]
+    pub host: String,
+
+    /// Override the `known_hosts` path.  Defaults to
+    /// `~/.config/gitway/known_hosts` via `dirs::config_dir()`.
+    #[arg(long = "known-hosts", value_name = "FILE")]
+    pub known_hosts: Option<PathBuf>,
+
+    /// Force the new entry to be written in the OpenSSH
+    /// `HashKnownHosts yes` form (`|1|salt|hash`).  Without this
+    /// flag, the format follows the existing file's convention
+    /// (hashed if any line is hashed, plaintext otherwise).
+    /// Mutually exclusive with `--no-hash`.
+    #[arg(long = "hash", action = ArgAction::SetTrue, conflicts_with = "no_hash")]
+    pub hash: bool,
+
+    /// Force the new entry to be written in plaintext form,
+    /// regardless of the existing file's convention.  Mutually
+    /// exclusive with `--hash`.
+    #[arg(long = "no-hash", action = ArgAction::SetTrue, conflicts_with = "hash")]
+    pub no_hash: bool,
+
+    /// Append the entry without prompting for confirmation.
+    /// Required when stdin is not a terminal or when running with
+    /// `--json` / `AI_AGENT=1` / `CI=true`.
+    #[arg(short = 'y', long = "yes", action = ArgAction::SetTrue)]
+    pub yes: bool,
+}
+
+/// Arguments for `gitway hosts revoke`.
+#[derive(Debug, Args)]
+pub struct HostsRevokeArgs {
+    /// Either a host pattern (`github.com`, `*.example.com`) or a
+    /// SHA-256 fingerprint (`SHA256:...`).  Host-pattern inputs
+    /// produce one `@revoked` line per matching fingerprint
+    /// resolved through `host_key_trust`; fingerprint inputs
+    /// produce a single `@revoked * <fp>` line.
+    #[arg(value_name = "HOST_OR_FINGERPRINT")]
+    pub input: String,
+
+    /// Override the `known_hosts` path.  Defaults to
+    /// `~/.config/gitway/known_hosts`.
+    #[arg(long = "known-hosts", value_name = "FILE")]
+    pub known_hosts: Option<PathBuf>,
+}
+
+/// Arguments for `gitway hosts list`.
+#[derive(Debug, Args)]
+pub struct HostsListArgs {
+    /// Override the `known_hosts` path.  Defaults to
+    /// `~/.config/gitway/known_hosts`.
+    #[arg(long = "known-hosts", value_name = "FILE")]
+    pub known_hosts: Option<PathBuf>,
 }
 
 /// Gitway — pure-Rust SSH toolkit for Git: transport, keys, signing, agent.
