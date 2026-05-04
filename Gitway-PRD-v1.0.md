@@ -209,7 +209,7 @@ This section defines the four feature areas that constitute the v1.0 scope, plus
 | `ForwardAgent`             | no  | Disallowed (NG10)                                                               |
 | `LocalForward` / `RemoteForward` / `DynamicForward` | no | Disallowed (NG3) |
 
-- **FR-47.** Parse `~/.ssh/config` (and any `Include`d files) on every `gitway` invocation that targets a remote host. The parser is part of **Anvil**'s `config` module (`anvil_ssh::config`).
+- **FR-47.** Parse `~/.ssh/config` (and any `Include`d files) on every `gitway` invocation that targets a remote host. The parser is part of **Anvil**'s `ssh_config` module (`anvil_ssh::ssh_config`); the existing `anvil_ssh::config` module hosts the [`AnvilConfig`](https://docs.rs/anvil-ssh) builder, so a sibling sub-module name keeps the boundary unambiguous.
 - **FR-48.** Resolution precedence: explicit CLI flag > `~/.ssh/config` matched block > Gitway built-in defaults. Document the precedence table in `--help`.
 - **FR-49.** Support `Include` with up to 16 nesting levels; detect cycles and abort with `USAGE_ERROR`.
 - **FR-50.** Tilde expansion for paths (`~`, `~user/`); environment-variable expansion (`${VAR}`) per `ssh_config(5)`.
@@ -443,7 +443,9 @@ The §7.3 backwards-compat clause specifies the *result* of the extraction. This
 |---------------|--------------------------------------------------------------------------------------------|
 | 0.1.0         | **✅ Shipped 2026-05-03.** Lift-and-shift extraction (cold-start). No behavior change. No type renames. |
 | 0.2.0         | **✅ Shipped 2026-05-04.** `GitwaySession`/`GitwayConfig`/`GitwayError` → `Anvil*` renames with `#[deprecated]` aliases. |
-| 0.3.0–0.9.0   | ⏳ In progress (M12+). §5.8 modules added incrementally — one minor per Gitway milestone M12–M19. |
+| 0.3.0         | **✅ Shipped 2026-05-04.** §5.8.1 — `anvil_ssh::ssh_config` parser/resolver; `AnvilConfig` API break (`identity_files: Vec<PathBuf>`, `StrictHostKeyChecking` enum) with deprecated 0.2.x shims; `apply_ssh_config()` builder method. |
+| 0.3.1         | **✅ Shipped 2026-05-04.** `diagnostic::emit_for_with_config_sources()` for the NFR-24 diag-line `config_source=` field (M12.8). Pure addition. |
+| 0.4.0–0.9.0   | ⏳ In progress (M13+). §5.8 modules added incrementally — one minor per Gitway milestone M13–M19. |
 | 1.0.0         | ⏳ Planned. Stabilization. Cut concurrently with Gitway 1.0.0 (PRD M20).                    |
 
 **Crates.io plan.** Publish `anvil-ssh = "0.1.0"` immediately after the extracted code builds clean in isolation. Existing `gitway-lib` releases on crates.io are *not* yanked — yanking would break older `Cargo.lock` files in the wild. The final published `gitway-lib` release (0.9.x) gets a README pointing at Anvil. From v1.0 onward, only `anvil-ssh` is published; the in-tree `gitway-lib/` directory inside the Gitway workspace becomes a Gitway-internal compat shim and is not republished to crates.io.
@@ -474,7 +476,7 @@ The §7.3 backwards-compat clause specifies the *result* of the extraction. This
 |-----------|-------|------------------|--------|
 | M1–M11 | v0.1–v0.9 (shipped) | Transport, signing, agent, NixOS, diagnostic, post-0.6 polish | ✅ Done |
 | **M11.5** | **Anvil extraction + 0.2.0 type rename** | `Steelbore/Anvil` repo bootstrapped via cold-start (subtree split blocked by Cygwin fork issue on the Windows dev host — see §7.4); `anvil-ssh = "0.1.0"` and `anvil-ssh = "0.2.0"` published to crates.io; Gitway `Cargo.toml` depends on `anvil-ssh = "0.2.0"`; in-tree `gitway-lib/` reduced to deprecated `pub use anvil_ssh::*;` shim with `publish = false`; `gitway-cli` source migrated from `Gitway*` to `Anvil*` type names; CI green on all three platforms; `gitway --test` against `github.com` authenticated against the embedded Ed25519 fingerprint. Gitway tags: `v1.0.0-rc.1` (after Anvil 0.1.0 + PR #16), `v1.0.0-rc.2` (after Anvil 0.2.0 + PR #17). | ✅ Done 2026-05-04 |
-| **M12** | **§5.8.1 — `~/.ssh/config` parser** | Lexer, parser, matcher, resolver; `gitway config show` subcommand; CLI integration | ⏳ Planned |
+| **M12** | **§5.8.1 — `~/.ssh/config` parser** | `anvil_ssh::ssh_config` (lexer / parser / matcher / Include / resolver) shipped in `anvil-ssh = "0.3.0"`; `AnvilConfig` API break bringing in `identity_files: Vec<PathBuf>` and `StrictHostKeyChecking` (with deprecated 0.2.x shims); `apply_ssh_config()` builder method + `accept-new` minimal write path; `gitway config show <host>` subcommand mirroring `ssh -G` (human + JSON, with `[REDACTED]` for `IdentityFile` paths per NFR-20); global `--no-config` flag; `config_source=` field on the `gitway diag` line (NFR-24) shipped in `anvil-ssh = "0.3.1"`; NFR-15 latency bench enforces ≤ 5 ms cold (median ≈ 280 µs on a typical config); acceptance matrix at `anvil/tests/ssh_config_matrix/*.yaml`. `Match` blocks are recognized at parse time but never match a host — full `Match` semantics deferred to v1.1 per §12 Q1. Anvil PRs: [#1](https://github.com/Steelbore/Anvil/pull/1), [#2](https://github.com/Steelbore/Anvil/pull/2), [#3](https://github.com/Steelbore/Anvil/pull/3), [#4](https://github.com/Steelbore/Anvil/pull/4). Gitway PRs: [#19](https://github.com/Steelbore/Gitway/pull/19), [#20](https://github.com/Steelbore/Gitway/pull/20). Gitway tag: `v1.0.0-rc.3`. | ✅ Done 2026-05-04 |
 | **M13** | **§5.8.2 — `ProxyCommand` + `ProxyJump`** | Subprocess transport; chained-hop session manager; per-hop verification | ⏳ Planned |
 | **M14** | **§5.8.3 — `@cert-authority` host CA** | Parser; cert-validator; integration with `known_hosts` resolver | ⏳ Planned |
 | **M15** | **§5.8.4 — `-vv`, `-vvv`, JSONL debug** | `tracing`-based tracer; category filter; JSONL emitter | ⏳ Planned |
