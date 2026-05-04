@@ -504,6 +504,18 @@ async fn run_test(
     session.close().await?;
 
     if mode == OutputMode::Json {
+        // M14 (FR-60, FR-64): mirror `gitway config show --json`'s
+        // cert_authorities + revoked surfacing so a `gitway --test
+        // --json` envelope is self-describing for an audit log.  The
+        // future FR-61..63 cert-validate path will populate the
+        // CA-verified fingerprint here once russh upstream exposes
+        // server certificates to `check_server_key`.
+        let (cert_authorities_json, revoked_json) = config::cert_and_revoked_json(
+            &config.host,
+            &config.custom_known_hosts,
+            "gitway --test",
+        );
+
         let json = serde_json::json!({
             "metadata": {
                 "tool": "gitway",
@@ -519,6 +531,8 @@ async fn run_test(
                 "authenticated": authenticated,
                 "username": config.username,
                 "banner": banner,
+                "cert_authorities": cert_authorities_json,
+                "revoked": revoked_json,
             }
         });
         println!("{json}");
