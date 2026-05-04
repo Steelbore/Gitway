@@ -27,6 +27,23 @@ pub enum OutputFormat {
     Json,
 }
 
+/// Format for verbose / debug records emitted to stderr (PRD §5.8.4
+/// FR-68).  Distinct from [`OutputFormat`] — that flag controls
+/// command result on stdout (`--test --json`, `--install --json`),
+/// while this flag controls the verbose/debug stream on stderr.
+/// The two are independent: `gitway --test --json --debug-format=json`
+/// emits JSON on stdout for the result envelope AND JSONL on stderr
+/// for the verbose/debug events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum DebugFormat {
+    /// Readable indented format suitable for an interactive terminal.
+    #[default]
+    Human,
+    /// Newline-delimited JSON, one record per line, for
+    /// log-aggregation pipelines.
+    Json,
+}
+
 // ── Subcommands ───────────────────────────────────────────────────────────────
 
 /// Optional subcommands for agent/CI discovery and key operations (SFRS Rule 4).
@@ -569,6 +586,42 @@ pub struct Cli {
     /// invariant for the exec / `--test --json` paths is preserved.
     #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
     pub verbose: u8,
+
+    /// Format for verbose / debug records emitted to stderr (FR-68).
+    ///
+    /// - `human` (default) — readable indented format suitable for an
+    ///   interactive terminal.
+    /// - `json` — newline-delimited JSON (one record per line) for
+    ///   log-aggregation pipelines.  Each record carries `ts` (RFC
+    ///   3339 UTC), `level`, `category` (the tracing target), and
+    ///   `message` keys, plus any structured fields the call site
+    ///   provided (e.g. `host`, `fp`, `verdict` for host-key events).
+    ///
+    /// Stdout is unchanged regardless of this flag — it stays clean
+    /// for the exec passthrough and `--test --json` envelope.
+    #[arg(long = "debug-format", value_enum, default_value_t = DebugFormat::Human)]
+    pub debug_format: DebugFormat,
+
+    /// Comma-separated list of tracing categories to enable at the
+    /// active verbosity level (FR-69).  Recognized values come from
+    /// [`anvil_ssh::log::CATEGORIES`] (`anvil_ssh::kex`,
+    /// `anvil_ssh::auth`, `anvil_ssh::channel`, `anvil_ssh::config`)
+    /// plus the synthetic `russh` for russh's own debug output.
+    ///
+    /// When set, only the listed categories produce events at
+    /// `trace`/`debug`/`info` levels — everything else is filtered to
+    /// `warn`.  This lets `gitway -vvv --debug-categories=kex,auth`
+    /// give an operator the full handshake + auth picture without the
+    /// `~/.ssh/config` directive firehose.
+    ///
+    /// Short forms (`kex`, `auth`, `channel`, `config`) are accepted
+    /// and expand to the `anvil_ssh::*` long form internally.
+    #[arg(
+        long = "debug-categories",
+        value_delimiter = ',',
+        num_args = 1..,
+    )]
+    pub debug_categories: Vec<String>,
 
     // ── Special modes ─────────────────────────────────────────────────────────
     /// Verify connectivity to the target host and display the server banner (FR-21).

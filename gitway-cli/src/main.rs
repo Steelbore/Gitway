@@ -30,7 +30,7 @@ use anvil_ssh::auth::connect_agent;
 use anvil_ssh::auth::{find_identity, IdentityResolution};
 use anvil_ssh::{AnvilConfig, AnvilError, AnvilSession};
 
-use cli::{Cli, GitwaySubcommand, OutputFormat};
+use cli::{Cli, DebugFormat, GitwaySubcommand, OutputFormat};
 
 // ── Output mode ───────────────────────────────────────────────────────────────
 
@@ -83,55 +83,162 @@ fn is_agent_or_ci_env() -> bool {
         || std::env::var("CI").is_ok_and(|v| v.eq_ignore_ascii_case("true"))
 }
 
-// ── Tracing subscriber init (FR-65, FR-67) ──────────────────────────────────
+// ── Tracing subscriber init (FR-65, FR-67, FR-68, FR-69) ────────────────────
 
-/// Installs a [`tracing_subscriber`] with the level + per-target
-/// filter derived from the `-v` count flag.
+/// Installs a [`tracing_subscriber`] with the filter derived from the
+/// `-v` count + (optional) `--debug-categories` list, formatted per
+/// `--debug-format`.
 ///
-/// Mapping (PRD §5.8.4 default, FR-65):
+/// **Filter mapping (PRD §5.8.4 default, FR-65):**
 ///
-/// | `-v` count | Filter directive |
+/// | `-v` count | Filter directive (no `--debug-categories`) |
 /// |---|---|
 /// | 0 (no flag) | `warn` |
 /// | 1 (`-v`) | `gitway=info,anvil_ssh=info,russh=warn` |
 /// | 2 (`-vv`) | `gitway=debug,anvil_ssh=debug,russh=info` |
 /// | 3+ (`-vvv`) | `gitway=trace,anvil_ssh=trace,russh=info` |
 ///
-/// Russh stays at `info` even at `-vvv` to avoid the per-packet
-/// hex-dump firehose; opt in with `RUST_LOG=russh=trace`.  When
+/// When `--debug-categories=<list>` is set (FR-69), the directive
+/// switches to a category-gated form: `warn` baseline plus one
+/// `<target>=<level>` entry per requested category, where `<level>`
+/// matches the verbosity count and `<target>` is the long-form
+/// `anvil_ssh::*` target (short forms `kex`/`auth`/`channel`/`config`
+/// are expanded; `russh` and any other long-form target pass through
+/// unchanged).
+///
+/// Russh stays at `info` even at `-vvv` (no `--debug-categories=russh`)
+/// to avoid the per-packet hex-dump firehose; opt in via
+/// `--debug-categories=russh` or `RUST_LOG=russh=trace`.  When
 /// `RUST_LOG` is set in the environment, it takes precedence over
 /// the flag-derived filter (SFRS §3 env precedence) so power users
 /// retain an escape hatch.
 ///
-/// Output goes exclusively to stderr (FR-67).  Format is human-
-/// readable for now; the JSONL formatter lands in M15.5 alongside
-/// `--debug-format=json`.
-fn init_tracing_subscriber(verbose: u8) {
+/// Output goes exclusively to stderr (FR-67).  When
+/// `--debug-format=json` (FR-68), records are emitted as one JSON
+/// object per line with `ts`, `level`, `target`, `message`, and any
+/// structured fields the call site provided.
+fn init_tracing_subscriber(verbose: u8, debug_format: DebugFormat, debug_categories: &[String]) {
     use tracing_subscriber::EnvFilter;
 
-    // Build the default per-target filter from the verbosity count.
-    // Saturate at 3 so `-vvvv` and higher behave like `-vvv`.
-    let default_directive = match verbose {
-        0 => "warn".to_owned(),
-        1 => "gitway=info,anvil_ssh=info,russh=warn".to_owned(),
-        2 => "gitway=debug,anvil_ssh=debug,russh=info".to_owned(),
-        _ => "gitway=trace,anvil_ssh=trace,russh=info".to_owned(),
-    };
+    let default_directive = build_filter_directive(verbose, debug_categories);
 
     // `RUST_LOG`, when set, takes precedence over the flag-derived
-    // filter so power users have an escape hatch.  `EnvFilter::try_from_default_env`
-    // reads `RUST_LOG`; falling back to the directive above if it is
-    // unset (or unparseable, which we treat the same as unset).
+    // filter so power users have an escape hatch.
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_directive));
 
     // FR-67: ALWAYS write to stderr; stdout is reserved for the
     // exec passthrough and `--test --json` envelope.
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .with_target(true)
-        .try_init();
+    match debug_format {
+        DebugFormat::Human => {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_writer(std::io::stderr)
+                .with_target(true)
+                .try_init();
+        }
+        DebugFormat::Json => {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_writer(std::io::stderr)
+                .with_target(true)
+                .json()
+                .flatten_event(true)
+                .with_current_span(false)
+                .try_init();
+        }
+    }
+}
+
+/// Builds the [`EnvFilter`] directive string for the given verbosity
+/// count + category list.  Extracted so unit tests can pin the
+/// filter shape without touching global tracing state.
+fn build_filter_directive(verbose: u8, debug_categories: &[String]) -> String {
+    if debug_categories.is_empty() {
+        // No category gate: per-target defaults at the count level.
+        return match verbose {
+            0 => "warn".to_owned(),
+            1 => "gitway=info,anvil_ssh=info,russh=warn".to_owned(),
+            2 => "gitway=debug,anvil_ssh=debug,russh=info".to_owned(),
+            _ => "gitway=trace,anvil_ssh=trace,russh=info".to_owned(),
+        };
+    }
+
+    // Category-gated: warn baseline plus one entry per requested
+    // category at the verbosity level.
+    let level = match verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
+
+    let mut directives: Vec<String> = vec!["warn".to_owned()];
+    for cat in debug_categories {
+        let target = expand_category(cat);
+        directives.push(format!("{target}={level}"));
+    }
+    directives.join(",")
+}
+
+/// Expands a short-form category (`kex`, `auth`, `channel`, `config`)
+/// to its full `anvil_ssh::*` target.  Other inputs (`russh`,
+/// long-form targets, typos) pass through unchanged so the filter
+/// engine adjudicates them.
+fn expand_category(short: &str) -> String {
+    match short {
+        "kex" => "anvil_ssh::kex".to_owned(),
+        "auth" => "anvil_ssh::auth".to_owned(),
+        "channel" => "anvil_ssh::channel".to_owned(),
+        "config" => "anvil_ssh::config".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    #[test]
+    fn no_categories_at_v0_is_warn_only() {
+        assert_eq!(build_filter_directive(0, &[]), "warn");
+    }
+
+    #[test]
+    fn no_categories_at_v3_uses_per_target_defaults() {
+        assert_eq!(
+            build_filter_directive(3, &[]),
+            "gitway=trace,anvil_ssh=trace,russh=info",
+        );
+    }
+
+    #[test]
+    fn category_gate_expands_short_forms_and_uses_warn_baseline() {
+        let directive = build_filter_directive(2, &["kex".to_owned(), "auth".to_owned()]);
+        assert_eq!(directive, "warn,anvil_ssh::kex=debug,anvil_ssh::auth=debug",);
+    }
+
+    #[test]
+    fn category_gate_passes_russh_through() {
+        let directive = build_filter_directive(3, &["russh".to_owned()]);
+        assert_eq!(directive, "warn,russh=trace");
+    }
+
+    #[test]
+    fn category_gate_at_v0_filters_to_warn_only() {
+        // Edge case: `--debug-categories=kex` with no `-v` is a no-op.
+        // The user gets exactly what they would have gotten without
+        // the flag — `warn`.  Documented behaviour: `--debug-categories`
+        // is a *narrowing* filter, not an enabler.
+        let directive = build_filter_directive(0, &["kex".to_owned()]);
+        assert_eq!(directive, "warn,anvil_ssh::kex=warn");
+    }
+
+    #[test]
+    fn unknown_short_form_passes_through_verbatim() {
+        let directive = build_filter_directive(1, &["typo".to_owned()]);
+        assert_eq!(directive, "warn,typo=info");
+    }
 }
 
 // ── ISO 8601 timestamp (thin wrapper over anvil_ssh::time) ──────────────────
@@ -207,7 +314,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    init_tracing_subscriber(cli.verbose);
+    init_tracing_subscriber(cli.verbose, cli.debug_format, &cli.debug_categories);
 
     // Error output mode: use explicit flags or agent env vars, but NOT TTY
     // detection — the exec path has a piped stdout that carries binary data.
