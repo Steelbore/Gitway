@@ -113,9 +113,9 @@ dependencies = [
 
 [[package]]
 name = "anvil-ssh"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6231d985675a58780402b55df3a2cfd18f7c95a6e7337a84994f62e2612be4a7"
+checksum = "5ff93b62734fe4a24bdb9210085a730dea293fa71efb3ce13bb9dca3499d915e"
 dependencies = [
  "async-trait",
  "dirs",

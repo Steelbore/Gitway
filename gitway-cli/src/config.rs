@@ -12,6 +12,7 @@
 
 use std::path::Path;
 
+use anvil_ssh::hostkey::host_key_trust;
 use anvil_ssh::ssh_config::{resolve, AlgList, ResolvedSshConfig, SshConfigPaths};
 use anvil_ssh::{AnvilError, StrictHostKeyChecking};
 
@@ -186,6 +187,16 @@ fn emit_json_show(args: &ConfigShowArgs, resolved: &ResolvedSshConfig) {
         })
         .collect();
 
+    // M14 (FR-60, FR-64): surface @cert-authority + @revoked entries
+    // matching this host so an operator can audit org-CA coverage and
+    // active blocklists.  See `cert_and_revoked_json` for the fan-out
+    // policy; FR-61..63 (live cert validation during the handshake)
+    // is gated on a russh-upstream change and is not surfaced yet —
+    // the JSON keys below are the audit-log groundwork.
+    let custom_known_hosts = resolved.user_known_hosts_files.first().cloned();
+    let (cert_authorities_json, revoked_json) =
+        cert_and_revoked_json(&args.host, &custom_known_hosts, "gitway config show");
+
     let data = serde_json::json!({
         "host": args.host,
         "hostname": resolved.hostname,
@@ -216,6 +227,8 @@ fn emit_json_show(args: &ConfigShowArgs, resolved: &ResolvedSshConfig) {
         "macs": resolved.macs.as_ref().map(|a| a.0.clone()),
         "connect_timeout_secs": resolved.connect_timeout.map(|d| d.as_secs()),
         "connection_attempts": resolved.connection_attempts,
+        "cert_authorities": cert_authorities_json,
+        "revoked": revoked_json,
         "provenance": provenance,
         "redacted": redacted,
     });
@@ -232,6 +245,61 @@ fn emit_json_show(args: &ConfigShowArgs, resolved: &ResolvedSshConfig) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Computes the `(cert_authorities, revoked)` JSON arrays for a host.
+///
+/// Wraps [`anvil_ssh::hostkey::host_key_trust`] for the M14 audit-log
+/// keys shared by `gitway config show --json` and `gitway --test
+/// --json`.  `custom_path` should be the first configured
+/// `UserKnownHostsFile` (or `None` to fall back to the platform
+/// default); a parse error logs a single-line warning to stderr
+/// prefixed with `scope_label` and returns empty vectors so the
+/// outer command keeps working.
+///
+/// FR-61..FR-63 (live cert verification during the SSH handshake)
+/// will populate richer fields once russh upstream exposes the
+/// server certificate to `check_server_key`; today this fn surfaces
+/// the configured CA + revoked entries only.
+#[allow(
+    clippy::ref_option,
+    reason = "Matches the &Option<PathBuf> shape of anvil_ssh::hostkey::host_key_trust to avoid a forced clone at every caller."
+)]
+pub(crate) fn cert_and_revoked_json(
+    host: &str,
+    custom_path: &Option<std::path::PathBuf>,
+    scope_label: &str,
+) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+    match host_key_trust(host, custom_path) {
+        Ok(trust) => {
+            let cas: Vec<serde_json::Value> = trust
+                .cert_authorities
+                .iter()
+                .map(|ca| {
+                    serde_json::json!({
+                        "host_pattern": ca.host_pattern,
+                        "algorithm": ca.algorithm,
+                        "fingerprint": ca.fingerprint,
+                    })
+                })
+                .collect();
+            let revoked: Vec<serde_json::Value> = trust
+                .revoked
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "host_pattern": r.host_pattern,
+                        "fingerprint": r.fingerprint,
+                    })
+                })
+                .collect();
+            (cas, revoked)
+        }
+        Err(e) => {
+            eprintln!("{scope_label}: warning: known_hosts CA/revoked parse failed: {e}");
+            (Vec::new(), Vec::new())
+        }
+    }
+}
 
 const REDACTED: &str = "[REDACTED]";
 
