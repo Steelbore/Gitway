@@ -22,7 +22,7 @@ rust-version = "1.88"
 # re-exports the Anvil API under the legacy `gitway_lib::*` module path;
 # new code in this workspace depends on `anvil-ssh` directly.  See PRD
 # §7.4 for the extraction plan and §13.5 for the convention.
-anvil-ssh = "0.5.0"
+anvil-ssh = "0.6.0"
 
 # Use aws-lc-rs crypto backend: Non-FIPS builds require no CMake/bindgen/Go,
 # and it provides post-quantum cryptography (PQC) support for future-proofing.
@@ -35,8 +35,17 @@ log       = "0.4"
 dirs      = "6"
 zeroize   = "1.7"
 
+# M15: tracing pipeline for the verbose / JSONL debug surface
+# (FR-65..FR-69).  Anvil 0.6.0+ emits structured `tracing::*!`
+# events; gitway-cli installs a single `tracing-subscriber` that
+# consumes them plus the legacy `log::*!` calls bridged via
+# `anvil_ssh::log::install_log_bridge()`.  `env-filter` enables
+# the per-target verbosity rules; `json` enables the
+# `--debug-format=json` JSONL emitter (M15.5).
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
 clap       = { version = "4", features = ["derive"] }
-env_logger = "0.11"
 rpassword  = "7"
 mimalloc   = "0.1"
 

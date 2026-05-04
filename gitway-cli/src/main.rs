@@ -83,6 +83,57 @@ fn is_agent_or_ci_env() -> bool {
         || std::env::var("CI").is_ok_and(|v| v.eq_ignore_ascii_case("true"))
 }
 
+// ── Tracing subscriber init (FR-65, FR-67) ──────────────────────────────────
+
+/// Installs a [`tracing_subscriber`] with the level + per-target
+/// filter derived from the `-v` count flag.
+///
+/// Mapping (PRD §5.8.4 default, FR-65):
+///
+/// | `-v` count | Filter directive |
+/// |---|---|
+/// | 0 (no flag) | `warn` |
+/// | 1 (`-v`) | `gitway=info,anvil_ssh=info,russh=warn` |
+/// | 2 (`-vv`) | `gitway=debug,anvil_ssh=debug,russh=info` |
+/// | 3+ (`-vvv`) | `gitway=trace,anvil_ssh=trace,russh=info` |
+///
+/// Russh stays at `info` even at `-vvv` to avoid the per-packet
+/// hex-dump firehose; opt in with `RUST_LOG=russh=trace`.  When
+/// `RUST_LOG` is set in the environment, it takes precedence over
+/// the flag-derived filter (SFRS §3 env precedence) so power users
+/// retain an escape hatch.
+///
+/// Output goes exclusively to stderr (FR-67).  Format is human-
+/// readable for now; the JSONL formatter lands in M15.5 alongside
+/// `--debug-format=json`.
+fn init_tracing_subscriber(verbose: u8) {
+    use tracing_subscriber::EnvFilter;
+
+    // Build the default per-target filter from the verbosity count.
+    // Saturate at 3 so `-vvvv` and higher behave like `-vvv`.
+    let default_directive = match verbose {
+        0 => "warn".to_owned(),
+        1 => "gitway=info,anvil_ssh=info,russh=warn".to_owned(),
+        2 => "gitway=debug,anvil_ssh=debug,russh=info".to_owned(),
+        _ => "gitway=trace,anvil_ssh=trace,russh=info".to_owned(),
+    };
+
+    // `RUST_LOG`, when set, takes precedence over the flag-derived
+    // filter so power users have an escape hatch.  `EnvFilter::try_from_default_env`
+    // reads `RUST_LOG`; falling back to the directive above if it is
+    // unset (or unparseable, which we treat the same as unset).
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_directive));
+
+    // FR-67: ALWAYS write to stderr; stdout is reserved for the
+    // exec passthrough and `--test --json` envelope.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(true)
+        .try_init();
+}
+
 // ── ISO 8601 timestamp (thin wrapper over anvil_ssh::time) ──────────────────
 
 /// Returns the current UTC time as an ISO 8601 string.
@@ -146,26 +197,17 @@ fn compute_config_sources(cli: &Cli) -> Vec<std::path::PathBuf> {
 
 #[tokio::main]
 async fn main() {
+    // M15 / FR-65, FR-67, FR-69: install the `log` -> `tracing` bridge
+    // FIRST so any `log::*!` event emitted by clap on a parse error
+    // (e.g. from a `--bogus-flag`) is still routed through our
+    // subscriber.  The bridge is idempotent — a second call returns
+    // `SetLoggerError`, which we tolerate so this stays safe to call
+    // from doc-tests and integration tests that share a process.
+    let _ = anvil_ssh::log::install_log_bridge();
+
     let cli = Cli::parse();
 
-    let log_level = if cli.verbose {
-        log::LevelFilter::Debug
-    } else {
-        log::LevelFilter::Warn
-    };
-
-    env_logger::Builder::new()
-        .filter_level(log_level)
-        // Suppress noisy crate logs unless verbose.
-        .filter_module(
-            "russh",
-            if cli.verbose {
-                log::LevelFilter::Debug
-            } else {
-                log::LevelFilter::Off
-            },
-        )
-        .init();
+    init_tracing_subscriber(cli.verbose);
 
     // Error output mode: use explicit flags or agent env vars, but NOT TTY
     // detection — the exec path has a piped stdout that carries binary data.
@@ -288,7 +330,11 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
         }
     };
 
-    let mut config_builder = AnvilConfig::builder(&host).verbose(cli.verbose);
+    // Anvil's `verbose: bool` predates M15's count-style flag; pass
+    // `true` whenever the user asked for any verbosity, since the
+    // per-level depth is now controlled by the tracing subscriber's
+    // EnvFilter rather than this single bool.
+    let mut config_builder = AnvilConfig::builder(&host).verbose(cli.verbose > 0);
 
     // Apply ssh_config-derived defaults FIRST.  Subsequent builder
     // calls (CLI overrides) override them, matching OpenSSH precedence:

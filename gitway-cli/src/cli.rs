@@ -554,9 +554,21 @@ pub struct Cli {
     pub no_color: bool,
 
     // ── Diagnostic ────────────────────────────────────────────────────────────
-    /// Enable verbose debug logging to stderr.
-    #[arg(short = 'v', long = "verbose", action = ArgAction::SetTrue)]
-    pub verbose: bool,
+    /// Enable verbose debug logging to stderr (FR-65).  Repeatable —
+    /// `-v` / `-vv` / `-vvv` produce additive depth (FR-66):
+    ///
+    /// - `-v`   — info-level events from anvil-ssh and gitway.
+    /// - `-vv`  — debug-level events including russh handshake details.
+    /// - `-vvv` — trace-level events including every applied
+    ///   `~/.ssh/config` directive (with file + line), every
+    ///   identity tried (path, fingerprint, algorithm, verdict),
+    ///   every channel open / close (with channel id), and every
+    ///   protocol message type with size.
+    ///
+    /// Output goes exclusively to stderr (FR-67) so the stdout-clean
+    /// invariant for the exec / `--test --json` paths is preserved.
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
+    pub verbose: u8,
 
     // ── Special modes ─────────────────────────────────────────────────────────
     /// Verify connectivity to the target host and display the server banner (FR-21).
