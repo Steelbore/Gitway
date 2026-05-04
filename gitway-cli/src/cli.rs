@@ -84,6 +84,15 @@ pub enum GitwaySubcommand {
     /// pairs.  Honours the `--no-config` global flag — useful for
     /// confirming that `ssh_config` is being applied as expected.
     Config(ConfigArgs),
+    /// Print every algorithm Gitway can negotiate, grouped by category
+    /// (M17, PRD §5.8.6 FR-79).  Mirrors the layout of
+    /// `gitway hosts list`: four sections (KEX / Ciphers / MACs /
+    /// Host-key algorithms) on stdout, each entry tagged
+    /// `default` / `available` / `denylisted`.  Useful for writing
+    /// valid `--kex` / `--ciphers` / `--macs` / `--host-key-algorithms`
+    /// override lists without trial and error.  Honours `--json` /
+    /// `--format json` for agent / CI discovery.
+    ListAlgorithms,
     /// Manage `~/.config/gitway/known_hosts` — add, revoke, list
     /// (M19, PRD §5.8.8 FR-84..FR-87).
     ///
@@ -647,6 +656,31 @@ pub struct Cli {
     /// entire chain (NFR-17).
     #[arg(short = 'J', long = "jump-host", value_name = "[USER@]HOST[:PORT]", action = ArgAction::Append)]
     pub jump_host: Vec<String>,
+
+    // ── Algorithm overrides (PRD §5.8.6, M17, FR-77) ──────────────────────────
+    //
+    // Each flag takes a comma-separated list with optional OpenSSH
+    // prefix `+algo` (append) / `-algo` (remove) / `^algo` (front-load) /
+    // bare list (replace).  Empty / unset = use Anvil's curated default.
+    // Refused if any token is on the FR-78 permanent denylist (DSA, 3DES,
+    // Arcfour, hmac-sha1-96, ssh-1.0); run `gitway list-algorithms` to
+    // see the supported set.
+    /// Override key-exchange algorithm preference (FR-76, FR-77).
+    /// Accepts OpenSSH `+algo` / `-algo` / `^algo` / `algo,algo` syntax.
+    #[arg(long = "kex", value_name = "LIST")]
+    pub kex: Option<String>,
+
+    /// Override cipher preference (FR-76, FR-77).
+    #[arg(long = "ciphers", value_name = "LIST")]
+    pub ciphers: Option<String>,
+
+    /// Override MAC preference (FR-76, FR-77).
+    #[arg(long = "macs", value_name = "LIST")]
+    pub macs: Option<String>,
+
+    /// Override host-key algorithm preference (FR-76, FR-77).
+    #[arg(long = "host-key-algorithms", value_name = "LIST")]
+    pub host_key_algorithms: Option<String>,
 
     // ── Output format (SFRS Rule 1) ───────────────────────────────────────────
     /// Emit structured JSON output (shorthand for `--format json`).

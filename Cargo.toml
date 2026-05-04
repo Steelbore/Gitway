@@ -22,7 +22,7 @@ rust-version = "1.88"
 # re-exports the Anvil API under the legacy `gitway_lib::*` module path;
 # new code in this workspace depends on `anvil-ssh` directly.  See PRD
 # §7.4 for the extraction plan and §13.5 for the convention.
-anvil-ssh = "0.7.0"
+anvil-ssh = "0.8.0"
 
 # Use aws-lc-rs crypto backend: Non-FIPS builds require no CMake/bindgen/Go,
 # and it provides post-quantum cryptography (PQC) support for future-proofing.

@@ -15,6 +15,7 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod agent;
+mod algorithms;
 mod cli;
 mod config;
 mod hosts;
@@ -75,6 +76,39 @@ fn detect_output_mode(cli: &Cli, check_tty: bool) -> OutputMode {
     }
 
     OutputMode::Human
+}
+
+/// M17 / FR-77 helper: applies a single CLI algorithm override flag
+/// (e.g. `--kex +diffie-hellman-group14-sha256`) to the
+/// `AnvilConfigBuilder`.
+///
+/// `override_str` is the raw value from the flag — `None` (flag
+/// absent) is a no-op.  When set, the value is resolved against
+/// `default_fn()` via `algorithms::apply_overrides`, which applies
+/// the FR-78 denylist and any `+` / `-` / `^` prefix; the resulting
+/// list is stored on the builder via `setter`.  A denylisted token
+/// surfaces as a hard error here, propagating up through `run`
+/// for the existing `tips-thinking` JSON-or-human error path.
+///
+/// # Errors
+///
+/// Returns an `AnvilError` when the override references a denylisted
+/// algorithm.
+fn apply_alg_override(
+    builder: anvil_ssh::config::AnvilConfigBuilder,
+    category: anvil_ssh::algorithms::AlgCategory,
+    override_str: Option<&str>,
+    default_fn: fn() -> Vec<String>,
+    setter: fn(
+        anvil_ssh::config::AnvilConfigBuilder,
+        Vec<String>,
+    ) -> anvil_ssh::config::AnvilConfigBuilder,
+) -> Result<anvil_ssh::config::AnvilConfigBuilder, AnvilError> {
+    let Some(value) = override_str else {
+        return Ok(builder);
+    };
+    let resolved = anvil_ssh::algorithms::apply_overrides(category, default_fn(), value)?;
+    Ok(setter(builder, resolved))
 }
 
 /// Returns `true` when a known agent or CI environment variable is set.
@@ -384,6 +418,17 @@ async fn main() {
 
 // ── Top-level dispatch ────────────────────────────────────────────────────────
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Single dispatcher orchestrating subcommand routing, \
+              ssh_config resolution, builder construction (identity / cert / \
+              algorithm overrides), proxy / jump dispatch, and either --test / \
+              --install / exec.  Splitting at any of these boundaries spreads \
+              the precedence ordering — flag-beats-config-beats-default — \
+              across multiple fns and obscures it.  M17.4 added 32 lines of \
+              CLI algorithm-override plumbing on top; that's what tipped this \
+              over the 100-line limit."
+)]
 async fn run(cli: Cli) -> Result<u32, AnvilError> {
     // Handle subcommands first — none of them open an SSH connection.
     let mode = detect_output_mode(&cli, true);
@@ -396,6 +441,7 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
             GitwaySubcommand::Agent(args) => agent::run(args.command, mode).await,
             GitwaySubcommand::Config(args) => config::run(args.command, mode),
             GitwaySubcommand::Hosts(args) => hosts::run(args.command, mode).await,
+            GitwaySubcommand::ListAlgorithms => algorithms::run(mode),
         };
     }
 
@@ -480,6 +526,40 @@ async fn run(cli: Cli) -> Result<u32, AnvilError> {
     if let Some(ref cert) = cli.cert {
         config_builder = config_builder.cert_file(cert.clone());
     }
+
+    // M17 / FR-77: apply CLI algorithm overrides AFTER apply_ssh_config
+    // so `--kex` etc. win over `~/.ssh/config`'s value, matching
+    // OpenSSH's flag-beats-config precedence.  Each override resolves
+    // against Anvil's curated default, and the resulting list is
+    // already denylist-filtered by `apply_overrides`.
+    config_builder = apply_alg_override(
+        config_builder,
+        anvil_ssh::algorithms::AlgCategory::Kex,
+        cli.kex.as_deref(),
+        anvil_ssh::algorithms::anvil_default_kex,
+        |b, list| b.kex_algorithms(Some(list)),
+    )?;
+    config_builder = apply_alg_override(
+        config_builder,
+        anvil_ssh::algorithms::AlgCategory::Cipher,
+        cli.ciphers.as_deref(),
+        anvil_ssh::algorithms::anvil_default_ciphers,
+        |b, list| b.ciphers(Some(list)),
+    )?;
+    config_builder = apply_alg_override(
+        config_builder,
+        anvil_ssh::algorithms::AlgCategory::Mac,
+        cli.macs.as_deref(),
+        anvil_ssh::algorithms::anvil_default_macs,
+        |b, list| b.macs(Some(list)),
+    )?;
+    config_builder = apply_alg_override(
+        config_builder,
+        anvil_ssh::algorithms::AlgCategory::HostKey,
+        cli.host_key_algorithms.as_deref(),
+        anvil_ssh::algorithms::anvil_default_host_keys,
+        |b, list| b.host_key_algorithms(Some(list)),
+    )?;
 
     let config = config_builder.build();
 
