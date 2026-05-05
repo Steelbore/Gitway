@@ -630,6 +630,13 @@ gitway [OPTIONS] <host> <command...>
 | `-p, --port <PORT>` | SSH port (default: 22) |
 | `-v, --verbose` | Enable debug logging to stderr |
 | `--insecure-skip-host-check` | **Danger:** skip host-key verification |
+| `--connect-timeout <SECS>` | Per-attempt TCP connect deadline in seconds (FR-80). Default: none. |
+| `--attempts <N>` | Total connection attempts including the first (FR-80). Default: 3; use `1` to disable retry. |
+| `--max-retry-window <SECS>` | Hard ceiling on total retry wall-clock time in seconds (FR-81). Default: 30 s. |
+| `--kex <LIST>` | Override KEX algorithm preference using `+algo` / `-algo` / `^algo` / `algo,algo` syntax (FR-77). |
+| `--ciphers <LIST>` | Override cipher preference. See `gitway list-algorithms` for available names. |
+| `--macs <LIST>` | Override MAC preference. |
+| `--host-key-algorithms <LIST>` | Override host-key algorithm preference. |
 | `--test` | Verify connectivity and display the GitHub banner |
 | `--install` | Register as `core.sshCommand` in global Git config |
 
@@ -648,6 +655,11 @@ gitway --identity ~/.ssh/id_ed25519_github github.com git-upload-pack 'org/repo.
 **Verbose debug output:**
 ```sh
 gitway --verbose --test
+```
+
+**Retry with a 5-second per-attempt timeout (e.g. flaky corporate proxy):**
+```sh
+gitway --connect-timeout 5 --attempts 3 --test
 ```
 
 **Target a GitHub Enterprise Server instance:**
