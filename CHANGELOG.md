@@ -6,7 +6,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [1.0.0] — TBD
+## [1.0.0] — 2026-05-05
 
 The first stable release of Gitway: a pure-Rust SSH toolkit for
 Git that replaces the OpenSSH binary in the Git transport
