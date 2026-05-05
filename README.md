@@ -973,24 +973,27 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-anvil-ssh = "0.1"
+anvil-ssh = "1.0"
 ```
 
 The legacy `gitway-lib` 0.9.x release on crates.io is deprecated; migrate by
 swapping the dep and replacing `use gitway_lib::*;` with `use anvil_ssh::*;`.
-The type names (`GitwaySession`, `GitwayConfig`, `GitwayError`) carry forward
-unchanged through Anvil 0.1.x; they will rename to `Anvil*` with
-`#[deprecated]` aliases in Anvil 0.2.0.
+The canonical type names since Anvil 0.2.0 are `AnvilSession`, `AnvilConfig`,
+`AnvilError`; the legacy `GitwaySession` / `GitwayConfig` / `GitwayError`
+aliases remain available as `#[deprecated]` re-exports through the entire
+`anvil-ssh` 1.x line and will be removed in 2.0.0.  See
+[`docs/migration-from-v0.9.md`](docs/migration-from-v0.9.md) for the full
+migration guide.
 
 ### Connect and run a Git command
 
 ```rust
-use anvil_ssh::{GitwayConfig, GitwaySession};
+use anvil_ssh::{AnvilConfig, AnvilSession};
 
 #[tokio::main]
-async fn main() -> Result<(), anvil_ssh::GitwayError> {
-    let config = GitwayConfig::github();
-    let mut session = GitwaySession::connect(&config).await?;
+async fn main() -> Result<(), anvil_ssh::AnvilError> {
+    let config = AnvilConfig::github();
+    let mut session = AnvilSession::connect(&config).await?;
     session.authenticate_best(&config).await?;
 
     let exit_code = session.exec("git-upload-pack 'org/repo.git'").await?;
@@ -1003,10 +1006,10 @@ async fn main() -> Result<(), anvil_ssh::GitwayError> {
 ### Target a GitHub Enterprise Server instance
 
 ```rust
-use anvil_ssh::GitwayConfig;
+use anvil_ssh::AnvilConfig;
 use std::path::PathBuf;
 
-let config = GitwayConfig::builder("ghe.corp.example.com")
+let config = AnvilConfig::builder("ghe.corp.example.com")
     .port(22)
     .identity_file(PathBuf::from("/home/user/.ssh/id_ed25519"))
     .build();
@@ -1015,9 +1018,9 @@ let config = GitwayConfig::builder("ghe.corp.example.com")
 ### Handle errors by category
 
 ```rust
-use anvil_ssh::GitwayError;
+use anvil_ssh::AnvilError;
 
-fn handle(err: &GitwayError) {
+fn handle(err: &AnvilError) {
     if err.is_host_key_mismatch() {
         eprintln!("Possible MITM — aborting.");
     } else if err.is_no_key_found() {
@@ -1028,7 +1031,7 @@ fn handle(err: &GitwayError) {
 }
 ```
 
-### `GitwayConfig` builder reference
+### `AnvilConfig` builder reference
 
 | Method | Default | Description |
 |---|---|---|
